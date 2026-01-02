@@ -135,3 +135,5 @@ tools/downloads/
 
 # Plex configuration (contains sensitive token)
 plex-config.json
+
+tools/plex_mapper/__pycache__/

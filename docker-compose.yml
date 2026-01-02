@@ -7,8 +7,10 @@ services:
     ports:
       - "8042:80"
     volumes:
-      # Mount your local playlists (CSV files for YouTube fallback)
+      # Mount your local playlists (CSV files and plex-mapping-*.json files)
       - /mnt/user/appdata/songseeker/playlists:/usr/share/nginx/html/playlists:ro
+      # Plex configuration (server URL and token)
+      - /mnt/user/appdata/songseeker/plex-config.json:/usr/share/nginx/html/plex-config.json:ro
       # Basic auth password file
       - /mnt/user/appdata/songseeker/.htpasswd:/etc/nginx/.htpasswd:ro
     restart: unless-stopped

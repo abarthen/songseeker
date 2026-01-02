@@ -16,21 +16,18 @@ poetry install
 
 ## Usage
 
+The script reads Plex credentials from `../plex-config.json` by default.
+
 ### Basic mapping (search Plex only)
 
 ```bash
-poetry run plex-mapper \
-  --server https://your-plex-server:32400 \
-  --token YOUR_PLEX_TOKEN \
-  --csv ../songseeker-hitster-playlists/hitster-de.csv
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv
 ```
 
 ### With download of missing songs
 
 ```bash
 poetry run plex-mapper \
-  --server https://your-plex-server:32400 \
-  --token YOUR_PLEX_TOKEN \
   --csv ../songseeker-hitster-playlists/hitster-de.csv \
   --download \
   --cookies firefox
@@ -40,8 +37,6 @@ poetry run plex-mapper \
 
 ```bash
 poetry run plex-mapper \
-  --server https://your-plex-server:32400 \
-  --token YOUR_PLEX_TOKEN \
   --csv ../songseeker-hitster-playlists/hitster-de.csv \
   --download \
   --cookies firefox \
@@ -49,19 +44,22 @@ poetry run plex-mapper \
   --debug
 ```
 
-### Finding your Plex token
+### Override credentials via CLI
 
-1. Sign in to Plex Web App
-2. Browse to any media item and click "Get Info"
-3. Click "View XML"
-4. The token is in the URL as `X-Plex-Token=...`
+```bash
+poetry run plex-mapper \
+  --server https://your-plex-server:32400 \
+  --token YOUR_PLEX_TOKEN \
+  --csv ../songseeker-hitster-playlists/hitster-de.csv
+```
 
 ## Command Line Arguments
 
 | Argument | Short | Description |
 |----------|-------|-------------|
-| `--server` | `-s` | Plex server URL (required) |
-| `--token` | `-t` | Plex authentication token (required) |
+| `--server` | `-s` | Plex server URL (default: from plex-config.json) |
+| `--token` | `-t` | Plex authentication token (default: from plex-config.json) |
+| `--config` | | Path to plex-config.json (default: ../plex-config.json) |
 | `--csv` | `-c` | Path to Hitster CSV file (required) |
 | `--output` | `-o` | Output JSON file path (default: auto-generated with timestamp) |
 | `--download` | `-D` | Download missing songs from YouTube |

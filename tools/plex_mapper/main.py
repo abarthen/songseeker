@@ -6,8 +6,9 @@ Reads Hitster CSV files and searches your Plex library to create a mapping file.
 Can also download missing songs from YouTube with proper metadata.
 
 Usage:
+    poetry run plex-mapper --csv hitster-de.csv
+    poetry run plex-mapper --csv hitster-de.csv --download
     poetry run plex-mapper --server https://plex.example.com --token YOUR_TOKEN --csv hitster-de.csv
-    poetry run plex-mapper --server https://plex.example.com --token YOUR_TOKEN --csv hitster-de.csv --download
 """
 
 import argparse
@@ -23,15 +24,31 @@ from urllib.parse import quote
 import requests
 
 
+def load_plex_config(config_path: Path) -> tuple[str, str]:
+    """Load Plex server URL and token from config file."""
+    if not config_path.exists():
+        return None, None
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config.get("serverUrl"), config.get("token")
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Warning: Could not read config file: {e}")
+        return None, None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate Plex mappings for SongSeeker Hitster cards"
     )
     parser.add_argument(
-        "--server", "-s", required=True, help="Plex server URL (e.g., https://plex.example.com:32400)"
+        "--server", "-s", help="Plex server URL (default: from plex-config.json)"
     )
     parser.add_argument(
-        "--token", "-t", required=True, help="Plex authentication token (X-Plex-Token)"
+        "--token", "-t", help="Plex authentication token (default: from plex-config.json)"
+    )
+    parser.add_argument(
+        "--config", help="Path to plex-config.json (default: ../plex-config.json)"
     )
     parser.add_argument(
         "--csv", "-c", required=True, help="Path to Hitster CSV file"
@@ -54,7 +71,26 @@ def parse_args():
     parser.add_argument(
         "--limit", "-l", type=int, default=0, help="Only process first N songs (for testing)"
     )
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    # Load config file if server/token not provided
+    if not args.server or not args.token:
+        config_path = Path(args.config) if args.config else Path(__file__).parent.parent.parent / "plex-config.json"
+        config_server, config_token = load_plex_config(config_path)
+
+        if not args.server:
+            args.server = config_server
+        if not args.token:
+            args.token = config_token
+
+    # Validate we have required values
+    if not args.server or not args.token:
+        print("Error: Plex server and token are required.")
+        print("Either provide --server and --token, or create plex-config.json")
+        sys.exit(1)
+
+    return args
 
 
 def plex_request(url: str, token: str) -> dict:
