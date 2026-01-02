@@ -129,11 +129,10 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-tools/*.csv
-tools/plex-mapping-*.json
 tools/downloads/
 
-# Plex configuration (contains sensitive token)
+tools/plex-mapping-*.json
+tools/plex-mapping-*.csv
 plex-config.json
 
 tools/plex_mapper/__pycache__/

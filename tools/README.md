@@ -18,10 +18,18 @@ poetry install
 
 The script reads Plex credentials from `../plex-config.json` by default.
 
+**Incremental matching**: By default, the script loads any existing mapping file and skips songs that are already matched. This speeds up subsequent runs after adding songs to Plex.
+
 ### Basic mapping (search Plex only)
 
 ```bash
 poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv
+```
+
+### Re-match all songs (ignore existing mapping)
+
+```bash
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --rematch
 ```
 
 ### With download of missing songs
@@ -38,19 +46,8 @@ poetry run plex-mapper \
 ```bash
 poetry run plex-mapper \
   --csv ../songseeker-hitster-playlists/hitster-de.csv \
-  --download \
-  --cookies firefox \
   --limit 5 \
   --debug
-```
-
-### Override credentials via CLI
-
-```bash
-poetry run plex-mapper \
-  --server https://your-plex-server:32400 \
-  --token YOUR_PLEX_TOKEN \
-  --csv ../songseeker-hitster-playlists/hitster-de.csv
 ```
 
 ## Command Line Arguments
@@ -61,20 +58,20 @@ poetry run plex-mapper \
 | `--token` | `-t` | Plex authentication token (default: from plex-config.json) |
 | `--config` | | Path to plex-config.json (default: ../plex-config.json) |
 | `--csv` | `-c` | Path to Hitster CSV file (required) |
-| `--output` | `-o` | Output JSON file path (default: auto-generated with timestamp) |
+| `--output` | `-o` | Output JSON file path (default: plex-mapping-{lang}.json) |
 | `--download` | `-D` | Download missing songs from YouTube |
 | `--download-dir` | | Directory for downloads (default: `./downloads`) |
 | `--cookies` | | Browser name (`firefox`, `chrome`, `edge`) or path to cookies.txt |
 | `--debug` | `-d` | Enable debug output |
 | `--limit` | `-l` | Only process first N songs (for testing) |
+| `--rematch` | `-R` | Re-match all songs (default: skip already matched) |
 
 ## Output Files
 
-The script generates:
+The script generates (overwriting on each run):
 
-1. **`plex-mapping-{lang}_{timestamp}.json`** - Mapping file for SongSeeker web app
-2. **`...-missing-soundiiz.csv`** - Import to [Soundiiz](https://soundiiz.com) to create playlists
-3. **`...-missing-full.csv`** - Full details with YouTube Music URLs
+1. **`plex-mapping-{lang}.json`** - Mapping file for SongSeeker web app
+2. **`missing-{lang}.csv`** - Songs not found in Plex (with YouTube Music URLs)
 
 ## Download Folder Structure
 
@@ -91,10 +88,10 @@ Files that already exist are skipped automatically.
 
 ## Deploying the Mapping
 
-Copy the generated JSON to the web app root:
+Copy the generated JSON to the server's playlists folder:
 
 ```bash
-cp plex-mapping-de_*.json ../plex-mapping.json
+cp plex-mapping-de.json /path/to/server/playlists/
 ```
 
 ## Web App Configuration

@@ -85,8 +85,9 @@ Python tool to generate Plex mappings and download missing songs.
 
 **Features:**
 - Searches Plex library for songs with exact year matching
-- Generates plex-mapping JSON for the web app
-- Creates Soundiiz-compatible CSV for importing missing songs
+- Incremental matching (skips already-matched songs by default, use `--rematch` to re-match all)
+- Generates `plex-mapping-{lang}.json` for the web app
+- Generates `missing-{lang}.csv` with unmatched songs
 - Downloads missing songs from YouTube with metadata embedded
 - Plex-friendly folder structure: `artist/song name/song name (year).mp3`
 

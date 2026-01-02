@@ -14,10 +14,8 @@ Usage:
 import argparse
 import csv
 import json
-import os
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -70,6 +68,9 @@ def parse_args():
     )
     parser.add_argument(
         "--limit", "-l", type=int, default=0, help="Only process first N songs (for testing)"
+    )
+    parser.add_argument(
+        "--rematch", "-R", action="store_true", help="Re-match all songs (default: skip already matched)"
     )
 
     args = parser.parse_args()
@@ -366,11 +367,31 @@ def main():
     except Exception as e:
         print(f"Warning: Search API test failed: {e}")
 
+    # Determine output filename (no timestamp)
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        csv_basename = csv_path.stem
+        lang = csv_basename.replace("hitster-", "")
+        output_path = Path(f"plex-mapping-{lang}.json")
+
+    # Load existing mapping if not rematching
+    existing_mapping = {}
+    if not args.rematch and output_path.exists():
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                existing_mapping = json.load(f)
+            matched_count = sum(1 for v in existing_mapping.values() if v is not None)
+            print(f"\nLoaded existing mapping: {matched_count} matched, {len(existing_mapping) - matched_count} unmatched")
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load existing mapping: {e}")
+
     # Process each song
-    mapping = {}
+    mapping = dict(existing_mapping)  # Start with existing
     songs = rows
     found = 0
     not_found = 0
+    skipped = 0
     missing_songs = []
 
     # Apply limit if specified
@@ -386,6 +407,14 @@ def main():
         title = row[title_idx]
         year = row[year_idx]
         url = row[url_idx] if url_idx >= 0 else ""
+
+        # Skip already matched songs (unless rematching)
+        if not args.rematch and card_id in existing_mapping and existing_mapping[card_id] is not None:
+            if args.debug:
+                print(f"[{i + 1}/{len(songs)}] Skipping (already matched): {artist} - {title}")
+            skipped += 1
+            found += 1  # Count as found for stats
+            continue
 
         if args.debug:
             print(f"\n[{i + 1}/{len(songs)}] Searching: \"{artist}\" - \"{title}\" ({year})")
@@ -421,44 +450,23 @@ def main():
                 "url": url,
             })
 
-    # Determine output filename with timestamp
-    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        csv_basename = csv_path.stem
-        lang = csv_basename.replace("hitster-", "")
-        output_path = Path(f"plex-mapping-{lang}_{timestamp}.json")
-
     # Write output
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
 
-    # Generate missing songs CSVs
+    # Generate missing songs CSV (overwrites each run)
     if missing_songs:
-        # Soundiiz CSV format
-        soundiiz_path = output_path.with_name(output_path.stem + "-missing-soundiiz.csv")
-        with open(soundiiz_path, "w", encoding="utf-8", newline="") as f:
+        csv_basename = csv_path.stem
+        lang = csv_basename.replace("hitster-", "")
+        missing_path = Path(f"missing-{lang}.csv")
+        with open(missing_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["Track Name", "Artist Name", "Album Name"])
-            for song in missing_songs:
-                writer.writerow([song["title"], song["artist"], ""])
-
-        print(f"\nSoundiiz CSV saved to: {soundiiz_path}")
-        print("  -> Upload to Soundiiz (soundiiz.com) to create a YouTube Music playlist")
-
-        # Full details CSV with YouTube Music URLs
-        full_path = output_path.with_name(output_path.stem + "-missing-full.csv")
-        with open(full_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Artist", "Title", "Year", "YouTube Music URL"])
+            writer.writerow(["Card#", "Artist", "Title", "Year", "YouTube Music URL"])
             for song in missing_songs:
                 yt_music_url = youtube_to_music_url(song["url"])
-                writer.writerow([song["artist"], song["title"], song["year"], yt_music_url])
+                writer.writerow([song["card_id"], song["artist"], song["title"], song["year"], yt_music_url])
 
-        print(f"\nFull details CSV saved to: {full_path}")
-        print("  -> Contains YouTube Music URLs for playlist creation")
+        print(f"\nMissing songs CSV saved to: {missing_path}")
 
     # Download missing songs if requested
     if args.download and missing_songs:
@@ -479,14 +487,14 @@ def main():
                 failed += 1
                 continue
 
-            print(f"[{i + 1}/{len(missing_songs)}] Downloading: {song['artist']} - {song['title']}... ", end="", flush=True)
+            print(f"[{i + 1}/{len(missing_songs)}] {song['artist']} - {song['title']} ({song['year']})... ", end="", flush=True)
 
             result = download_song(song["url"], song["artist"], song["title"], song["year"], download_dir, args.cookies, args.debug)
             if result is None:
-                print("SKIPPED (already exists)")
+                print("SKIPPED (exists)")
                 skipped += 1
             elif result:
-                print("OK")
+                print("DOWNLOADED")
                 downloaded += 1
             else:
                 print("FAILED")
@@ -498,6 +506,8 @@ def main():
     # Print summary
     print(f"\n{'=' * 40}")
     print("Results:")
+    if skipped > 0:
+        print(f"  Skipped (already matched): {skipped}")
     print(f"  Found in Plex: {found}")
     print(f"  Not found:     {not_found}")
     print(f"  Total:         {len(songs)}")
