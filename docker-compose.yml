@@ -9,4 +9,6 @@ services:
     volumes:
       # Mount your local playlists (CSV files for YouTube fallback)
       - /mnt/user/appdata/songseeker/playlists:/usr/share/nginx/html/playlists:ro
+      # Basic auth password file
+      - /mnt/user/appdata/songseeker/.htpasswd:/etc/nginx/.htpasswd:ro
     restart: unless-stopped
