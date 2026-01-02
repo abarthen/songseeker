@@ -109,6 +109,12 @@ hr {
   background-size: contain;
 }
 
+.button_startstop.playing::before {
+  background: url('data:image/svg+xml;utf8,<svg fill="white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="16" height="16" /></svg>')
+    no-repeat center center;
+  background-size: contain;
+}
+
 #qr-reader {
   position: relative;
   width: 100%;
@@ -145,7 +151,8 @@ hr {
 #videotitle,
 #videoduration,
 #videostart,
-#playbacksource {
+#playbacksource,
+#plexdebug {
   display: none;
   margin: 0.6rem auto;
   font-size: 1.1rem;

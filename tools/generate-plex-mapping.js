@@ -225,7 +225,6 @@ async function searchPlex(serverUrl, token, artist, title, expectedYear, debug =
                                 artist: track.grandparentTitle || track.originalTitle,
                                 album: track.parentTitle,
                                 year: trackYear,
-                                expectedYear: targetYear,
                                 duration: track.duration,
                                 partKey: track.Media?.[0]?.Part?.[0]?.key
                             };
@@ -249,17 +248,13 @@ async function searchPlex(serverUrl, token, artist, title, expectedYear, debug =
         }
     }
 
-    // Only return if year is within ±1 year tolerance (for slight metadata differences)
-    // Otherwise, fall back to YouTube which has the correct version
-    if (bestMatch && bestYearDiff <= 1) {
-        if (debug && bestYearDiff === 1) {
-            console.log(`  DEBUG: Accepting close year match (off by 1 year)`);
-        }
+    // Only return exact year matches
+    if (bestMatch && bestYearDiff === 0) {
         return bestMatch;
     }
 
     if (debug && bestMatch) {
-        console.log(`  DEBUG: Rejecting match - year too far off (${bestMatch.year} vs expected ${targetYear})`);
+        console.log(`  DEBUG: Rejecting match - year mismatch (${bestMatch.year} vs expected ${targetYear})`);
     }
 
     return null;
@@ -375,13 +370,10 @@ async function main() {
 
         if (plexTrack) {
             mapping[cardId] = plexTrack;
-            const yearNote = plexTrack.year !== plexTrack.expectedYear
-                ? ` [year: ${plexTrack.year}, expected: ${plexTrack.expectedYear}]`
-                : '';
             if (config.debug) {
-                console.log(`  FOUND: ${plexTrack.artist} - ${plexTrack.title} (key: ${plexTrack.ratingKey})${yearNote}`);
+                console.log(`  FOUND: ${plexTrack.artist} - ${plexTrack.title} (key: ${plexTrack.ratingKey})`);
             } else {
-                console.log(`FOUND (${plexTrack.artist} - ${plexTrack.title})${yearNote}`);
+                console.log(`FOUND (${plexTrack.artist} - ${plexTrack.title})`);
             }
             found++;
         } else {
@@ -451,10 +443,23 @@ async function main() {
         console.log(`  → Upload to Soundiiz (soundiiz.com) to create a YouTube Music playlist`);
         console.log(`  → Then download with Noteburner and add to Plex`);
 
-        // Full details CSV with YouTube URLs for manual download
-        const fullHeader = 'Artist,Title,Year,YouTube URL';
+        // Full details CSV with YouTube Music URLs for playlist import
+        const fullHeader = 'Artist,Title,Year,YouTube Music URL';
         const fullRows = missingSongs.map(song => {
-            return `${escapeCSV(song.artist)},${escapeCSV(song.title)},${escapeCSV(song.year)},${escapeCSV(song.url)}`;
+            // Convert YouTube URL to YouTube Music URL
+            let ytMusicUrl = song.url;
+            if (ytMusicUrl) {
+                // Handle youtu.be short URLs
+                const shortMatch = ytMusicUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
+                if (shortMatch) {
+                    ytMusicUrl = `https://music.youtube.com/watch?v=${shortMatch[1]}`;
+                } else {
+                    // Handle regular youtube.com URLs
+                    ytMusicUrl = ytMusicUrl.replace('https://www.youtube.com/', 'https://music.youtube.com/');
+                    ytMusicUrl = ytMusicUrl.replace('https://youtube.com/', 'https://music.youtube.com/');
+                }
+            }
+            return `${escapeCSV(song.artist)},${escapeCSV(song.title)},${escapeCSV(song.year)},${escapeCSV(ytMusicUrl)}`;
         });
         const fullContent = [fullHeader, ...fullRows].join('\n');
 
@@ -462,7 +467,7 @@ async function main() {
         fs.writeFileSync(fullPath, fullContent);
 
         console.log(`\nFull details CSV saved to: ${fullPath}`);
-        console.log(`  → Contains YouTube URLs for manual download of exact versions`);
+        console.log(`  → Contains YouTube Music URLs for playlist creation`);
     }
 
     console.log(`\n========================================`);

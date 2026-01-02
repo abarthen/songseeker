@@ -98,14 +98,16 @@ async function testPlexConnection() {
 
 function updatePlaybackSourceDisplay(source) {
     const sourceSpan = document.getElementById('playback-source');
-    const sourceDiv = document.getElementById('playbacksource');
-    if (sourceSpan && sourceDiv) {
+    if (sourceSpan) {
         sourceSpan.textContent = source === 'plex' ? 'Plex' : 'YouTube';
         sourceSpan.className = source;
-        // Show source indicator when song info is shown
-        if (document.getElementById('songinfo').checked) {
-            sourceDiv.style.display = 'block';
-        }
+    }
+}
+
+function updatePlexDebug(message) {
+    const debugSpan = document.getElementById('plex-debug');
+    if (debugSpan) {
+        debugSpan.textContent = message;
     }
 }
 
@@ -141,21 +143,39 @@ async function handleScannedLink(decodedText) {
     let youtubeURL = "";
     let plexTrackInfo = null;
     let usePlex = false;
+    let plexDebugInfo = "";
 
     if (isYoutubeLink(decodedText)) {
         youtubeURL = decodedText;
+        plexDebugInfo = "Direct YouTube link";
     } else if (isHitsterLink(decodedText)) {
         const hitsterData = parseHitsterUrl(decodedText);
         if (hitsterData) {
             console.log("Hitster data:", hitsterData.id, hitsterData.lang);
 
             // Check Plex first if configured
-            if (isPlexConfigured() && hasPlexMapping(hitsterData.lang)) {
+            const settings = getPlexSettings();
+            const plexConfigured = isPlexConfigured();
+            const hasMapping = hasPlexMapping(hitsterData.lang);
+
+            console.log(`Plex check: usePlex=${settings.usePlex}, configured=${plexConfigured}, hasMapping=${hasMapping}`);
+
+            if (!settings.usePlex) {
+                plexDebugInfo = `Plex disabled in settings`;
+            } else if (!plexConfig.serverUrl) {
+                plexDebugInfo = `No server URL in config`;
+            } else if (!plexConfig.token) {
+                plexDebugInfo = `No token in config`;
+            } else if (!hasMapping) {
+                plexDebugInfo = `No mapping for lang=${hitsterData.lang}`;
+            } else {
                 plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
                 if (plexTrackInfo) {
                     console.log(`Found in Plex: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`);
                     usePlex = true;
+                    plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
                 } else {
+                    plexDebugInfo = `Card #${hitsterData.id} not in mapping (lang=${hitsterData.lang})`;
                     console.log('Card not found in Plex mapping, falling back to YouTube');
                 }
             }
@@ -175,8 +195,10 @@ async function handleScannedLink(decodedText) {
             }
         } else {
             console.log("Invalid Hitster URL:", decodedText);
+            plexDebugInfo = "Invalid Hitster URL";
         }
     } else if (isRockster(decodedText)) {
+        plexDebugInfo = "Rockster link (YouTube only)";
         try {
             const urlObj = new URL(decodedText);
             const ytCode = urlObj.searchParams.get("yt");
@@ -196,6 +218,9 @@ async function handleScannedLink(decodedText) {
     document.getElementById('qr-reader').style.display = 'none';
     document.getElementById('cancelScanButton').style.display = 'none';
     lastDecodedText = "";
+
+    // Update debug info
+    updatePlexDebug(plexDebugInfo);
 
     // Handle Plex playback
     if (usePlex && plexTrackInfo) {
@@ -409,6 +434,7 @@ function handlePlayerStateChange(event) {
                 playerManager.play();
             } else if (document.getElementById('autoplay').checked) {
                 document.getElementById('startstop-video').innerHTML = "Stop";
+                document.getElementById('startstop-video').classList.add('playing');
                 if (document.getElementById('randomplayback').checked) {
                     playVideoAtRandomStartTime();
                 } else {
@@ -419,9 +445,11 @@ function handlePlayerStateChange(event) {
     } else if (state === PlayerState.PLAYING) {
         document.getElementById('startstop-video').style.background = "red";
         document.getElementById('startstop-video').innerHTML = "Stop";
+        document.getElementById('startstop-video').classList.add('playing');
     } else if (state === PlayerState.PAUSED || state === PlayerState.ENDED) {
         document.getElementById('startstop-video').innerHTML = "Play";
         document.getElementById('startstop-video').style.background = "green";
+        document.getElementById('startstop-video').classList.remove('playing');
     } else if (state === PlayerState.BUFFERING) {
         document.getElementById('startstop-video').style.background = "orange";
     }
@@ -443,6 +471,7 @@ function onPlayerStateChange(event) {
         // Check for Autoplay, there is not autoplay on iOS
         else if (document.getElementById('autoplay').checked == true) {
             document.getElementById('startstop-video').innerHTML = "Stop";
+            document.getElementById('startstop-video').classList.add('playing');
             if (document.getElementById('randomplayback').checked == true) {
                 playVideoAtRandomStartTime();
             }
@@ -453,10 +482,13 @@ function onPlayerStateChange(event) {
     }
     else if (event.data == YT.PlayerState.PLAYING) {
         document.getElementById('startstop-video').style.background = "red";
+        document.getElementById('startstop-video').innerHTML = "Stop";
+        document.getElementById('startstop-video').classList.add('playing');
     }
     else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
         document.getElementById('startstop-video').innerHTML = "Play";
         document.getElementById('startstop-video').style.background = "green";
+        document.getElementById('startstop-video').classList.remove('playing');
     }
     else if (event.data == YT.PlayerState.BUFFERING) {
         document.getElementById('startstop-video').style.background = "orange";
@@ -474,6 +506,7 @@ function formatDuration(duration) {
 document.getElementById('startstop-video').addEventListener('click', function() {
     if (this.innerHTML == "Play") {
         this.innerHTML = "Stop";
+        this.classList.add('playing');
         if (document.getElementById('randomplayback').checked == true) {
             playVideoAtRandomStartTime();
         } else {
@@ -486,6 +519,7 @@ document.getElementById('startstop-video').addEventListener('click', function() 
         }
     } else {
         this.innerHTML = "Play";
+        this.classList.remove('playing');
         // Use player manager for unified pause
         if (playerManager.isPlexActive()) {
             playerManager.pause();
@@ -541,6 +575,7 @@ function playVideoAtRandomStartTime() {
     playbackTimer = setTimeout(() => {
         player.pauseVideo();
         document.getElementById('startstop-video').innerHTML = "Play";
+        document.getElementById('startstop-video').classList.remove('playing');
     }, (endTime - startTime) * 1000); // Convert to milliseconds
 }
 
@@ -572,18 +607,21 @@ document.getElementById('songinfo').addEventListener('click', function() {
     var videoduration = document.getElementById('videoduration');
     var videostart = document.getElementById('videostart');
     var playbacksource = document.getElementById('playbacksource');
+    var plexdebug = document.getElementById('plexdebug');
     if(cb.checked == true){
         videoid.style.display = 'block';
         videotitle.style.display = 'block';
         videoduration.style.display = 'block';
         videostart.style.display = 'block';
         playbacksource.style.display = 'block';
+        plexdebug.style.display = 'block';
     } else {
         videoid.style.display = 'none';
         videotitle.style.display = 'none';
         videoduration.style.display = 'none';
         videostart.style.display = 'none';
         playbacksource.style.display = 'none';
+        plexdebug.style.display = 'none';
     }
 });
 
