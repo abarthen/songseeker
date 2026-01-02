@@ -6,4 +6,7 @@ services:
     container_name: songseeker
     ports:
       - "8041:80"
+    volumes:
+      # Mount your local playlists (CSV files for YouTube fallback)
+      - /mnt/user/appdata/songseeker/playlists:/usr/share/nginx/html/playlists:ro
     restart: unless-stopped
