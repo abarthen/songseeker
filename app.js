@@ -47,12 +47,16 @@ async function loadPlexMappings() {
     // Only load mappings listed in the manifest
     for (const lang of availableLangs) {
         try {
-            const response = await fetch(`/plex-mapping-${lang}.json`);
+            const url = `/plex-mapping-${lang}.json`;
+            console.log(`Fetching mapping: ${url}`);
+            const response = await fetch(url);
             if (response.ok) {
                 const mapping = await response.json();
                 plexMappingCache[lang] = mapping;
                 const trackCount = Object.values(mapping).filter(v => v !== null).length;
                 console.log(`Loaded Plex mapping for ${lang}: ${trackCount} tracks`);
+            } else {
+                console.error(`Failed to fetch mapping for ${lang}: HTTP ${response.status}`);
             }
         } catch (e) {
             console.error(`Failed to load mapping for ${lang}:`, e);
