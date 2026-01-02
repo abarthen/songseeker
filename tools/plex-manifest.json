@@ -1,5 +1,26 @@
 {
   "mappings": [
-    "de"
-  ]
+    "de",
+    "de-aaaa0007",
+    "de-aaaa0012",
+    "de-aaaa0015",
+    "de-aaaa0019",
+    "de-aaaa0025",
+    "de-aaaa0026",
+    "de-aaaa0039",
+    "de-aaaa0040",
+    "de-aaaa0042"
+  ],
+  "games": {
+    "de": "Hitster Deutschland",
+    "de-aaaa0007": "Hitster Deutschland Schlagerparty",
+    "de-aaaa0012": "Hitster Deutschland Summer Party",
+    "de-aaaa0015": "Hitster Deutschland Guilty Pleasures",
+    "de-aaaa0019": "Hitster Deutschland Bingo",
+    "de-aaaa0025": "Hitster Deutschland Bayern 1 Expansion Pack",
+    "de-aaaa0026": "Hitster Deutschland Movies & TV Soundtracks Expansion Pack",
+    "de-aaaa0039": "Hitster Deutschland Rock",
+    "de-aaaa0040": "Hitster Deutschland Celebration",
+    "de-aaaa0042": "Hitster Deutschland Christmas"
+  }
 }

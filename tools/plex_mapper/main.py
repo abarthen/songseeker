@@ -276,11 +276,39 @@ def parse_csv(csv_path: str) -> tuple[list[str], list[list[str]]]:
     # Skip Excel's sep= directive if present
     if rows and rows[0] and rows[0][0].lower().startswith("sep="):
         rows = rows[1:]
-    return rows[0], rows[1:]
+    # Filter out empty rows
+    headers = rows[0]
+    data_rows = [row for row in rows[1:] if row and len(row) >= len(headers)]
+    return headers, data_rows
 
 
-def update_manifest(output_dir: Path) -> None:
-    """Update plex-manifest.json with list of available mapping files."""
+def load_playlists_csv(playlists_path: Path) -> dict[str, str]:
+    """Load playlists.csv and return a mapping of lang -> game name."""
+    if not playlists_path.exists():
+        return {}
+
+    games = {}
+    try:
+        with open(playlists_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+
+        # Skip header row
+        for row in rows[1:]:
+            if len(row) >= 2:
+                # hitster-de.csv -> de, hitster-de-aaaa0007.csv -> de-aaaa0007
+                csv_file = row[0]
+                game_name = row[1].strip()
+                lang = csv_file.replace("hitster-", "").replace(".csv", "")
+                games[lang] = game_name
+    except Exception as e:
+        print(f"Warning: Could not read playlists.csv: {e}")
+
+    return games
+
+
+def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
+    """Update plex-manifest.json with list of available mapping files and game info."""
     manifest_path = output_dir / "plex-manifest.json"
 
     # Find all plex-mapping-*.json files in the directory
@@ -295,28 +323,24 @@ def update_manifest(output_dir: Path) -> None:
 
     langs.sort()
 
-    manifest = {"mappings": langs}
+    # Load game names from playlists.csv if available
+    games = {}
+    if playlists_dir:
+        playlists_path = playlists_dir / "playlists.csv"
+        games = load_playlists_csv(playlists_path)
+
+    # Build games mapping for available langs only
+    games_for_manifest = {lang: games.get(lang, f"Unknown ({lang})") for lang in langs}
+
+    manifest = {
+        "mappings": langs,
+        "games": games_for_manifest
+    }
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
 
     print(f"Updated manifest: {manifest_path} ({len(langs)} mappings)")
-
-
-def youtube_to_music_url(url: str) -> str:
-    """Convert YouTube URL to YouTube Music URL."""
-    if not url:
-        return ""
-
-    # Handle youtu.be short URLs
-    match = re.search(r"youtu\.be/([a-zA-Z0-9_-]+)", url)
-    if match:
-        return f"https://music.youtube.com/watch?v={match.group(1)}"
-
-    # Handle regular youtube.com URLs
-    url = url.replace("https://www.youtube.com/", "https://music.youtube.com/")
-    url = url.replace("https://youtube.com/", "https://music.youtube.com/")
-    return url
 
 
 def download_song(url: str, artist: str, title: str, year: str, output_dir: Path, cookies: str = None, debug: bool = False) -> bool:
@@ -579,22 +603,8 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
 
-    # Update manifest.json to list available mappings
-    update_manifest(output_path.parent)
-
-    # Generate missing songs CSV (overwrites each run, skip when using --id)
-    if missing_songs and not args.id:
-        csv_basename = csv_path.stem
-        lang = csv_basename.replace("hitster-", "")
-        missing_path = Path(f"missing-{lang}.csv")
-        with open(missing_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Card#", "Artist", "Title", "Year", "YouTube Music URL"])
-            for song in missing_songs:
-                yt_music_url = youtube_to_music_url(song["url"])
-                writer.writerow([song["card_id"], song["artist"], song["title"], song["year"], yt_music_url])
-
-        print(f"\nMissing songs CSV saved to: {missing_path}")
+    # Update manifest.json to list available mappings (pass CSV dir for playlists.csv)
+    update_manifest(output_path.parent, csv_path.parent)
 
     # Download missing songs if requested
     if args.download and missing_songs:
@@ -610,22 +620,25 @@ def main():
         failed = 0
 
         for i, song in enumerate(missing_songs):
+            progress = f"[{i + 1}/{len(missing_songs)}]"
+            song_info = f"{song['artist']} - {song['title']} ({song['year']})"
+
             if not song["url"]:
-                print(f"[{i + 1}/{len(missing_songs)}] Skipping (no URL): {song['artist']} - {song['title']}")
+                print(f"{progress} {song_info} - SKIPPED (no URL)")
                 failed += 1
                 continue
 
-            print(f"[{i + 1}/{len(missing_songs)}] {song['artist']} - {song['title']} ({song['year']})... ", end="", flush=True)
+            print(f"{progress} Downloading: {song_info}")
 
             result = download_song(song["url"], song["artist"], song["title"], song["year"], download_dir, args.cookies, args.debug)
             if result is None:
-                print("SKIPPED (exists)")
+                print(f"  -> SKIPPED (already exists)")
                 skipped += 1
             elif result:
-                print("DOWNLOADED")
+                print(f"  -> DOWNLOADED")
                 downloaded += 1
             else:
-                print("FAILED")
+                print(f"  -> FAILED")
                 failed += 1
 
         print(f"\nDownload complete: {downloaded} succeeded, {skipped} skipped, {failed} failed")

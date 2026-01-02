@@ -10,6 +10,7 @@ let currentStartTime = 0;
 // Plex integration
 let plexMappingCache = {}; // In-memory cache for Plex mappings
 let plexConfig = { serverUrl: '', token: '' }; // Loaded from plex-config.json
+let plexGames = {}; // Game names from manifest
 
 // Function to detect iOS devices
 function isIOS() {
@@ -38,7 +39,9 @@ async function loadPlexMappings() {
         if (manifestResponse.ok) {
             const manifest = await manifestResponse.json();
             availableLangs = manifest.mappings || [];
+            plexGames = manifest.games || {};
             console.log('Loaded manifest:', availableLangs);
+            console.log('Loaded games:', plexGames);
         }
     } catch (e) {
         console.log('No manifest found, skipping mapping load');
@@ -396,6 +399,33 @@ document.getElementById('cookies').addEventListener('click', function() {
         document.getElementById('cookielist').style.display = 'none';
     }
 });
+
+document.getElementById('showGameEditions').addEventListener('click', function() {
+    var cb = document.getElementById('showGameEditions');
+    var listEl = document.getElementById('gameEditionsList');
+    if (cb.checked == true) {
+        updateGameEditionsList();
+        listEl.style.display = 'block';
+    } else {
+        listEl.style.display = 'none';
+    }
+});
+
+function updateGameEditionsList() {
+    const listEl = document.getElementById('gameEditionsList');
+    const gameEntries = Object.entries(plexGames);
+
+    if (gameEntries.length === 0) {
+        listEl.innerHTML = '<em>No game editions loaded</em>';
+        return;
+    }
+
+    // Build a simple list of game names
+    const listHtml = '<ul style="margin: 0.5rem 0; padding-left: 1.5rem; text-align: left;">' +
+        gameEntries.map(([lang, name]) => `<li>${name}</li>`).join('') +
+        '</ul>';
+    listEl.innerHTML = listHtml;
+}
 
 function listCookies() {
     var result = document.cookie;
