@@ -1,0 +1,9 @@
+services:
+  songseeker:
+    build:
+      context: .
+      dockerfile: imagebuild/Dockerfile
+    container_name: songseeker
+    ports:
+      - "8041:80"
+    restart: unless-stopped

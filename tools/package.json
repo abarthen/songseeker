@@ -1,0 +1,10 @@
+{
+  "name": "songseeker-tools",
+  "version": "1.0.0",
+  "description": "Tools for SongSeeker - Plex mapping generator",
+  "scripts": {
+    "generate-mapping": "node generate-plex-mapping.js"
+  },
+  "keywords": ["plex", "hitster", "songseeker"],
+  "license": "MIT"
+}

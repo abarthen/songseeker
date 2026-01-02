@@ -144,7 +144,8 @@ hr {
 #videoid,
 #videotitle,
 #videoduration,
-#videostart {
+#videostart,
+#playbacksource {
   display: none;
   margin: 0.6rem auto;
   font-size: 1.1rem;
@@ -153,6 +154,18 @@ hr {
   padding: 0.5rem 0;
   width: 80%;
   color: #fff;
+}
+
+#playback-source {
+  font-weight: 700;
+}
+
+#playback-source.plex {
+  color: #e5a00d;
+}
+
+#playback-source.youtube {
+  color: #ff0000;
 }
 
 .settings_div {
@@ -226,6 +239,58 @@ label {
 
 #cookielist {
   display: none;
+}
+
+/* Plex Settings Styles */
+input[type="text"],
+input[type="password"] {
+  width: 80%;
+  max-width: 18rem;
+  font-size: 1rem;
+  padding: 0.5rem 0.8rem;
+  margin: 0.4rem 0;
+  border-radius: 0.5rem;
+  border: 1px solid #ff512f;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+input[type="text"]::placeholder,
+input[type="password"]::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+input[type="file"] {
+  font-size: 0.9rem;
+  color: #fff;
+  margin: 0.4rem 0;
+}
+
+#plexMappingStatus,
+#plexConnectionStatus {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+#plexMappingStatus.success,
+#plexConnectionStatus.success {
+  color: #4caf50;
+}
+
+#plexMappingStatus.error,
+#plexConnectionStatus.error {
+  color: #e95d5d;
+}
+
+#plexMappingStatus.loading,
+#plexConnectionStatus.loading {
+  color: #e5a00d;
+}
+
+#testPlexConnection {
+  margin-top: 0.5rem;
 }
 
 /* Animation for correct/incorrect guess feedback */

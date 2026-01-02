@@ -1,6 +1,7 @@
 import QrScanner from "https://unpkg.com/qr-scanner/qr-scanner.min.js";
+import { playerManager } from "./player-manager.js";
 
-let player; // Define player globally
+let player; // Define player globally (YouTube player)
 let playbackTimer; // hold the timer reference
 let playbackDuration = 30; // Default playback duration
 let qrScanner;
@@ -8,9 +9,92 @@ let csvCache = {};
 let lastDecodedText = ""; // Store the last decoded text
 let currentStartTime = 0;
 
+// Plex integration
+let plexMappingCache = {}; // In-memory cache for Plex mappings
+
 // Function to detect iOS devices
 function isIOS() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+// Plex helper functions
+function getPlexSettings() {
+    return {
+        usePlex: localStorage.getItem('usePlex') === 'true',
+        serverUrl: localStorage.getItem('plexServerUrl') || '',
+        token: localStorage.getItem('plexToken') || ''
+    };
+}
+
+function savePlexSettings(settings) {
+    localStorage.setItem('usePlex', settings.usePlex);
+    localStorage.setItem('plexServerUrl', settings.serverUrl);
+    localStorage.setItem('plexToken', settings.token);
+}
+
+function getPlexMapping(lang) {
+    const key = `plexMapping-${lang}`;
+    if (!plexMappingCache[lang]) {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+            try {
+                plexMappingCache[lang] = JSON.parse(stored);
+            } catch (e) {
+                console.error('Failed to parse Plex mapping:', e);
+                plexMappingCache[lang] = {};
+            }
+        } else {
+            plexMappingCache[lang] = {};
+        }
+    }
+    return plexMappingCache[lang];
+}
+
+function savePlexMapping(lang, mapping) {
+    const key = `plexMapping-${lang}`;
+    plexMappingCache[lang] = mapping;
+    localStorage.setItem(key, JSON.stringify(mapping));
+}
+
+function lookupPlexTrack(cardId, lang) {
+    const mapping = getPlexMapping(lang);
+    return mapping[cardId] || null;
+}
+
+function isPlexConfigured() {
+    const settings = getPlexSettings();
+    return settings.usePlex && settings.serverUrl && settings.token;
+}
+
+function hasPlexMapping(lang) {
+    const mapping = getPlexMapping(lang);
+    return Object.keys(mapping).length > 0;
+}
+
+async function testPlexConnection(serverUrl, token) {
+    try {
+        const url = `${serverUrl.replace(/\/$/, '')}/?X-Plex-Token=${token}`;
+        const response = await fetch(url, {
+            headers: { 'Accept': 'application/json' }
+        });
+        return response.ok;
+    } catch (e) {
+        console.error('Plex connection test failed:', e);
+        return false;
+    }
+}
+
+function updatePlaybackSourceDisplay(source) {
+    const sourceSpan = document.getElementById('playback-source');
+    const sourceDiv = document.getElementById('playbacksource');
+    if (sourceSpan && sourceDiv) {
+        sourceSpan.textContent = source === 'plex' ? 'Plex' : 'YouTube';
+        sourceSpan.className = source;
+        // Show source indicator when song info is shown
+        if (document.getElementById('songinfo').checked) {
+            sourceDiv.style.display = 'block';
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -43,33 +127,48 @@ document.addEventListener('DOMContentLoaded', function () {
 // Function to determine the type of link and act accordingly
 async function handleScannedLink(decodedText) {
     let youtubeURL = "";
+    let plexTrackInfo = null;
+    let usePlex = false;
+
     if (isYoutubeLink(decodedText)) {
         youtubeURL = decodedText;
     } else if (isHitsterLink(decodedText)) {
         const hitsterData = parseHitsterUrl(decodedText);
         if (hitsterData) {
             console.log("Hitster data:", hitsterData.id, hitsterData.lang);
-            try {
-                const csvContent = await getCachedCsv(`/playlists/hitster-${hitsterData.lang}.csv`);
-                const youtubeLink = lookupYoutubeLink(hitsterData.id, csvContent);
-                if (youtubeLink) {
-                    // Handle YouTube link obtained from the CSV
-                    console.log(`YouTube Link from CSV: ${youtubeLink}`);
-                    youtubeURL = youtubeLink;
-                    // Example: player.cueVideoById(parseYoutubeLink(youtubeLink).videoId);
+
+            // Check Plex first if configured
+            if (isPlexConfigured() && hasPlexMapping(hitsterData.lang)) {
+                plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
+                if (plexTrackInfo) {
+                    console.log(`Found in Plex: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`);
+                    usePlex = true;
+                } else {
+                    console.log('Card not found in Plex mapping, falling back to YouTube');
                 }
-            } catch (error) {
-              console.error("Failed to fetch CSV:", error);
             }
-        }
-        else {
+
+            // Fallback to YouTube if Plex not available
+            if (!usePlex) {
+                try {
+                    const csvContent = await getCachedCsv(`/playlists/hitster-${hitsterData.lang}.csv`);
+                    const youtubeLink = lookupYoutubeLink(hitsterData.id, csvContent);
+                    if (youtubeLink) {
+                        console.log(`YouTube Link from CSV: ${youtubeLink}`);
+                        youtubeURL = youtubeLink;
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch CSV:", error);
+                }
+            }
+        } else {
             console.log("Invalid Hitster URL:", decodedText);
         }
-    } else if (isRockster(decodedText)){
+    } else if (isRockster(decodedText)) {
         try {
-            const urlObj = new URL(decodedText); // Create URL object
-            const ytCode = urlObj.searchParams.get("yt"); // Extract 'yt' parameter
-    
+            const urlObj = new URL(decodedText);
+            const ytCode = urlObj.searchParams.get("yt");
+
             if (ytCode) {
                 youtubeURL = `https://www.youtube.com/watch?v=${ytCode}`;
             } else {
@@ -80,23 +179,40 @@ async function handleScannedLink(decodedText) {
         }
     }
 
-    console.log(`YouTube Video URL: ${youtubeURL}`);
+    // Hide scanner UI
+    qrScanner.stop();
+    document.getElementById('qr-reader').style.display = 'none';
+    document.getElementById('cancelScanButton').style.display = 'none';
+    lastDecodedText = "";
 
-    const youtubeLinkData = parseYoutubeLink(youtubeURL);
-    if (youtubeLinkData) {
-        qrScanner.stop(); // Stop scanning after a result is found
-        document.getElementById('qr-reader').style.display = 'none'; // Hide the scanner after successful scan
-        document.getElementById('cancelScanButton').style.display = 'none'; // Hide the cancel-button
-        lastDecodedText = ""; // Reset the last decoded text
+    // Handle Plex playback
+    if (usePlex && plexTrackInfo) {
+        const plexSettings = getPlexSettings();
+        playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
+        playerManager.setActivePlayerType('plex');
 
-        document.getElementById('video-id').textContent = youtubeLinkData.videoId;  
+        document.getElementById('video-id').textContent = plexTrackInfo.ratingKey;
+        document.getElementById('video-title').textContent = `${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
+        updatePlaybackSourceDisplay('plex');
 
-        console.log(youtubeLinkData.videoId);
-        currentStartTime = youtubeLinkData.startTime || 0;
-        player.cueVideoById(youtubeLinkData.videoId, currentStartTime);   
-        
+        currentStartTime = 0;
+        await playerManager.cue({ trackInfo: plexTrackInfo });
+        return;
     }
-    
+
+    // Handle YouTube playback
+    if (youtubeURL) {
+        const youtubeLinkData = parseYoutubeLink(youtubeURL);
+        if (youtubeLinkData) {
+            playerManager.setActivePlayerType('youtube');
+            document.getElementById('video-id').textContent = youtubeLinkData.videoId;
+            updatePlaybackSourceDisplay('youtube');
+
+            console.log(youtubeLinkData.videoId);
+            currentStartTime = youtubeLinkData.startTime || 0;
+            player.cueVideoById(youtubeLinkData.videoId, currentStartTime);
+        }
+    }
 }
 
     function isHitsterLink(url) {
@@ -231,6 +347,8 @@ function onYouTubeIframeAPIReady() {
             'onStateChange': onPlayerStateChange
         }
     });
+    // Register YouTube player with the player manager
+    playerManager.setYouTubePlayer(player);
 }
 window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 
@@ -246,6 +364,55 @@ function onPlayerReady(event) {
     // player.cueVideoById('dQw4w9WgXcQ');
     event.target.setVolume(100);
     event.target.unMute();
+
+    // Set up player manager state change callback for Plex
+    playerManager.onStateChange(handlePlayerStateChange);
+}
+
+// Unified state change handler (works for both YouTube and Plex via player manager)
+function handlePlayerStateChange(event) {
+    const state = event.data;
+    const PlayerState = playerManager.PlayerState;
+
+    if (state === PlayerState.CUED) {
+        document.getElementById('startstop-video').style.background = "green";
+
+        // Get track info from Plex player
+        if (playerManager.isPlexActive()) {
+            const videoData = playerManager.getVideoData();
+            document.getElementById('video-title').textContent = videoData.title;
+
+            // Wait for duration to be available
+            setTimeout(() => {
+                const duration = playerManager.getDuration();
+                if (duration) {
+                    document.getElementById('video-duration').textContent = formatDuration(duration);
+                }
+            }, 500);
+        }
+
+        // Handle autoplay for Plex
+        if (playerManager.isPlexActive()) {
+            if (isIOS()) {
+                playerManager.play();
+            } else if (document.getElementById('autoplay').checked) {
+                document.getElementById('startstop-video').innerHTML = "Stop";
+                if (document.getElementById('randomplayback').checked) {
+                    playVideoAtRandomStartTime();
+                } else {
+                    playerManager.play();
+                }
+            }
+        }
+    } else if (state === PlayerState.PLAYING) {
+        document.getElementById('startstop-video').style.background = "red";
+        document.getElementById('startstop-video').innerHTML = "Stop";
+    } else if (state === PlayerState.PAUSED || state === PlayerState.ENDED) {
+        document.getElementById('startstop-video').innerHTML = "Play";
+        document.getElementById('startstop-video').style.background = "green";
+    } else if (state === PlayerState.BUFFERING) {
+        document.getElementById('startstop-video').style.background = "orange";
+    }
 }
 
 // Display video information when it's cued
@@ -297,22 +464,40 @@ document.getElementById('startstop-video').addEventListener('click', function() 
         this.innerHTML = "Stop";
         if (document.getElementById('randomplayback').checked == true) {
             playVideoAtRandomStartTime();
+        } else {
+            // Use player manager for unified playback
+            if (playerManager.isPlexActive()) {
+                playerManager.play();
+            } else {
+                player.playVideo();
+            }
         }
-        else {
-            player.playVideo();
-        }
-    }
-    else {
+    } else {
         this.innerHTML = "Play";
-        player.pauseVideo();
+        // Use player manager for unified pause
+        if (playerManager.isPlexActive()) {
+            playerManager.pause();
+        } else {
+            player.pauseVideo();
+        }
     }
 });
 
 function playVideoAtRandomStartTime() {
     const minStartPercentage = 0.10;
     const maxEndPercentage = 0.90;
-    let videoDuration = player.getDuration()
     playbackDuration = parseInt(document.getElementById('playback-duration').value, 10) || 30;
+
+    // Use player manager for Plex, otherwise use YouTube player
+    if (playerManager.isPlexActive()) {
+        playerManager.playAtRandomStartTime(playbackDuration, currentStartTime, () => {
+            document.getElementById('startstop-video').innerHTML = "Play";
+        });
+        return;
+    }
+
+    // YouTube playback
+    let videoDuration = player.getDuration();
     let startTime = currentStartTime;
     let endTime = playbackDuration;
 
@@ -335,7 +520,7 @@ function playVideoAtRandomStartTime() {
     }
 
     // Cue video at calculated start time and play
-    console.log("play random", startTime, endTime)
+    console.log("play random", startTime, endTime);
     player.seekTo(startTime, true);
     player.playVideo();
 
@@ -374,16 +559,19 @@ document.getElementById('songinfo').addEventListener('click', function() {
     var videotitle = document.getElementById('videotitle');
     var videoduration = document.getElementById('videoduration');
     var videostart = document.getElementById('videostart');
+    var playbacksource = document.getElementById('playbacksource');
     if(cb.checked == true){
         videoid.style.display = 'block';
         videotitle.style.display = 'block';
         videoduration.style.display = 'block';
         videostart.style.display = 'block';
+        playbacksource.style.display = 'block';
     } else {
         videoid.style.display = 'none';
         videotitle.style.display = 'none';
         videoduration.style.display = 'none';
         videostart.style.display = 'none';
+        playbacksource.style.display = 'none';
     }
 });
 
@@ -444,9 +632,115 @@ function getCookies() {
     }
     if (getCookieValue("autoplayChecked") != "") {
         isTrueSet = (getCookieValue("autoplayChecked") === 'true');
-        document.getElementById('autoplay').checked = isTrueSet;  
+        document.getElementById('autoplay').checked = isTrueSet;
     }
     listCookies();
 }
 
-window.addEventListener("DOMContentLoaded", getCookies());
+// Load Plex settings from localStorage
+function loadPlexSettings() {
+    const settings = getPlexSettings();
+    document.getElementById('usePlex').checked = settings.usePlex;
+    document.getElementById('plexServerUrl').value = settings.serverUrl;
+    document.getElementById('plexToken').value = settings.token;
+
+    // Update mapping status display
+    updatePlexMappingStatus();
+}
+
+function updatePlexMappingStatus() {
+    const statusEl = document.getElementById('plexMappingStatus');
+    const langs = ['de', 'en', 'fr', 'nl', 'ca', 'pl', 'hu', 'nordics'];
+    const loadedLangs = langs.filter(lang => hasPlexMapping(lang));
+
+    if (loadedLangs.length > 0) {
+        statusEl.textContent = `Loaded: ${loadedLangs.join(', ')}`;
+        statusEl.className = 'success';
+    } else {
+        statusEl.textContent = 'No mappings loaded';
+        statusEl.className = '';
+    }
+}
+
+// Plex settings event listeners
+document.getElementById('usePlex').addEventListener('change', function() {
+    const settings = getPlexSettings();
+    settings.usePlex = this.checked;
+    savePlexSettings(settings);
+});
+
+document.getElementById('plexServerUrl').addEventListener('change', function() {
+    const settings = getPlexSettings();
+    settings.serverUrl = this.value.trim();
+    savePlexSettings(settings);
+});
+
+document.getElementById('plexToken').addEventListener('change', function() {
+    const settings = getPlexSettings();
+    settings.token = this.value.trim();
+    savePlexSettings(settings);
+});
+
+document.getElementById('plexMappingFile').addEventListener('change', async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('plexMappingStatus');
+    statusEl.textContent = 'Loading...';
+    statusEl.className = 'loading';
+
+    try {
+        const text = await file.text();
+        const mapping = JSON.parse(text);
+
+        // Extract language from filename (e.g., "plex-mapping-de.json" -> "de")
+        const langMatch = file.name.match(/plex-mapping-(\w+)\.json/);
+        const lang = langMatch ? langMatch[1] : 'de';
+
+        savePlexMapping(lang, mapping);
+
+        const trackCount = Object.values(mapping).filter(v => v !== null).length;
+        const totalCount = Object.keys(mapping).length;
+        statusEl.textContent = `Loaded ${lang}: ${trackCount}/${totalCount} tracks`;
+        statusEl.className = 'success';
+
+        updatePlexMappingStatus();
+    } catch (e) {
+        console.error('Failed to load Plex mapping:', e);
+        statusEl.textContent = 'Error loading file';
+        statusEl.className = 'error';
+    }
+
+    // Clear the file input so the same file can be loaded again
+    this.value = '';
+});
+
+document.getElementById('testPlexConnection').addEventListener('click', async function() {
+    const statusEl = document.getElementById('plexConnectionStatus');
+    const serverUrl = document.getElementById('plexServerUrl').value.trim();
+    const token = document.getElementById('plexToken').value.trim();
+
+    if (!serverUrl || !token) {
+        statusEl.textContent = 'Enter server URL and token';
+        statusEl.className = 'error';
+        return;
+    }
+
+    statusEl.textContent = 'Testing...';
+    statusEl.className = 'loading';
+
+    const success = await testPlexConnection(serverUrl, token);
+
+    if (success) {
+        statusEl.textContent = 'Connected!';
+        statusEl.className = 'success';
+    } else {
+        statusEl.textContent = 'Connection failed';
+        statusEl.className = 'error';
+    }
+});
+
+window.addEventListener("DOMContentLoaded", function() {
+    getCookies();
+    loadPlexSettings();
+});
