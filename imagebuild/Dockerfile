@@ -3,8 +3,8 @@ FROM nginx
 # Install Python for auth server and htpasswd tools
 RUN apt-get update && apt-get install -y python3 python3-pip apache2-utils && rm -rf /var/lib/apt/lists/*
 
-# Install passlib and bcrypt for htpasswd authentication
-RUN pip3 install --break-system-packages passlib bcrypt
+# Install bcrypt for htpasswd authentication
+RUN pip3 install --break-system-packages bcrypt
 
 # Copy nginx config
 COPY imagebuild/default.conf /etc/nginx/conf.d/default.conf

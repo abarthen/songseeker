@@ -12,7 +12,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from passlib.apache import HtpasswdFile
+import bcrypt
 
 # Configuration
 HTPASSWD_FILE = os.environ.get("HTPASSWD_FILE", "/etc/nginx/.htpasswd")
@@ -40,19 +40,33 @@ COOKIE_SECRET = load_cookie_secret()
 
 
 def load_htpasswd():
-    """Load htpasswd file using passlib."""
+    """Load users from htpasswd file."""
+    users = {}
     try:
-        return HtpasswdFile(HTPASSWD_FILE)
+        with open(HTPASSWD_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if ":" in line:
+                    username, password_hash = line.split(":", 1)
+                    users[username] = password_hash
     except FileNotFoundError:
         print(f"Warning: {HTPASSWD_FILE} not found")
-        return None
+    return users
 
 
-def verify_password(htpasswd, username, password):
-    """Verify password against htpasswd file."""
-    if htpasswd is None:
+def verify_password(users, username, password):
+    """Verify password against htpasswd hash (bcrypt format)."""
+    if not users or username not in users:
         return False
-    return htpasswd.check_password(username, password)
+    stored_hash = users[username]
+    # Handle bcrypt hashes ($2y$ or $2a$ or $2b$)
+    if stored_hash.startswith("$2"):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+        except Exception as e:
+            print(f"bcrypt error: {e}")
+            return False
+    return False
 
 
 def create_session_token(username):
@@ -88,7 +102,7 @@ def verify_session_token(token):
 
 
 class AuthHandler(BaseHTTPRequestHandler):
-    htpasswd = None
+    users = None
 
     def log_message(self, format, *args):
         """Log requests for debugging."""
@@ -148,12 +162,12 @@ class AuthHandler(BaseHTTPRequestHandler):
             username = params.get("username", [""])[0]
             password = params.get("password", [""])[0]
 
-            # Load htpasswd if not cached
-            if AuthHandler.htpasswd is None:
-                AuthHandler.htpasswd = load_htpasswd()
+            # Load users if not cached
+            if AuthHandler.users is None:
+                AuthHandler.users = load_htpasswd()
 
             # Verify credentials
-            if verify_password(AuthHandler.htpasswd, username, password):
+            if verify_password(AuthHandler.users, username, password):
                 # Create session token
                 token = create_session_token(username)
 
