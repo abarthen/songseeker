@@ -18,6 +18,8 @@ RUN chmod +x /opt/start.sh
 RUN rm -rf /usr/share/nginx/html/*
 COPY *.js *.html *.css *.png /usr/share/nginx/html/
 COPY icons/* /usr/share/nginx/html/icons/
+# Copy favicon to root for browser default requests
+COPY icons/favicon.ico /usr/share/nginx/html/favicon.ico
 
 # Note: plex-config.json is mounted at runtime, not copied during build
 
