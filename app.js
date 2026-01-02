@@ -142,6 +142,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // Function to determine the type of link and act accordingly
 async function handleScannedLink(decodedText) {
+    // Stop any current playback and reset button state
+    if (playbackTimer) {
+        clearTimeout(playbackTimer);
+        playbackTimer = null;
+    }
+    playerManager.stop();
+    document.getElementById('startstop-video').innerHTML = "Play";
+    document.getElementById('startstop-video').style.background = "";
+    document.getElementById('startstop-video').classList.remove('playing');
+
     let youtubeURL = "";
     let plexTrackInfo = null;
     let usePlex = false;
