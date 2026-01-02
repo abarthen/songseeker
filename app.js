@@ -70,7 +70,9 @@ function getPlexMapping(lang) {
 
 function lookupPlexTrack(cardId, lang) {
     const mapping = getPlexMapping(lang);
-    return mapping[cardId] || null;
+    // Normalize card ID by removing leading zeros (00257 -> 257)
+    const normalizedId = String(parseInt(cardId, 10));
+    return mapping[normalizedId] || null;
 }
 
 function isPlexConfigured() {
@@ -169,13 +171,14 @@ async function handleScannedLink(decodedText) {
             } else if (!hasMapping) {
                 plexDebugInfo = `No mapping for lang=${hitsterData.lang}`;
             } else {
+                const normalizedCardId = String(parseInt(hitsterData.id, 10));
                 plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
                 if (plexTrackInfo) {
                     console.log(`Found in Plex: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`);
                     usePlex = true;
                     plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
                 } else {
-                    plexDebugInfo = `Card #${hitsterData.id} not in mapping (lang=${hitsterData.lang})`;
+                    plexDebugInfo = `Card #${normalizedCardId} not in mapping (lang=${hitsterData.lang})`;
                     console.log('Card not found in Plex mapping, falling back to YouTube');
                 }
             }
