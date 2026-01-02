@@ -85,7 +85,8 @@ The `--rating-key` option is useful when Plex search doesn't find a track but yo
 The script generates (overwriting on each run):
 
 1. **`plex-mapping-{lang}.json`** - Mapping file for SongSeeker web app
-2. **`missing-{lang}.csv`** - Songs not found in Plex (with YouTube Music URLs)
+2. **`plex-manifest.json`** - Lists available mapping files (auto-generated)
+3. **`missing-{lang}.csv`** - Songs not found in Plex (with YouTube Music URLs)
 
 ## Download Folder Structure
 
@@ -102,11 +103,13 @@ Files that already exist are skipped automatically.
 
 ## Deploying the Mapping
 
-Copy the generated JSON to the server's playlists folder:
+Copy the generated JSON files to the server's config folder:
 
 ```bash
-cp plex-mapping-de.json /path/to/server/playlists/
+cp plex-mapping-*.json plex-manifest.json /mnt/user/appdata/songseeker/
 ```
+
+The web app reads `plex-manifest.json` to know which mapping files exist, avoiding 404 errors for missing languages.
 
 ## Web App Configuration
 

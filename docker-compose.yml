@@ -7,10 +7,11 @@ services:
     ports:
       - "8042:80"
     volumes:
-      # Mount your local playlists (CSV files and plex-mapping-*.json files)
-      - /mnt/user/appdata/songseeker/playlists:/usr/share/nginx/html/playlists:ro
       # Plex configuration (server URL and token)
       - /mnt/user/appdata/songseeker/plex-config.json:/usr/share/nginx/html/plex-config.json:ro
+      # Plex mappings (manifest + mapping files)
+      - /mnt/user/appdata/songseeker/plex-manifest.json:/usr/share/nginx/html/plex-manifest.json:ro
+      - /mnt/user/appdata/songseeker/plex-mapping-de.json:/usr/share/nginx/html/plex-mapping-de.json:ro
       # Auth credentials (htpasswd format)
       - /mnt/user/appdata/songseeker/.htpasswd:/etc/nginx/.htpasswd:ro
       # Cookie signing secret (generate with: openssl rand -hex 32 > .cookie_secret)

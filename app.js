@@ -29,13 +29,25 @@ async function loadPlexConfig() {
     }
 }
 
-// Load Plex mappings from playlists directory
+// Load Plex mappings from root directory
 async function loadPlexMappings() {
-    const langs = ['de', 'en', 'fr', 'nl', 'ca', 'pl', 'hu', 'nordics'];
+    // First, try to load the manifest to see which mappings are available
+    let availableLangs = [];
+    try {
+        const manifestResponse = await fetch('/plex-manifest.json');
+        if (manifestResponse.ok) {
+            const manifest = await manifestResponse.json();
+            availableLangs = manifest.mappings || [];
+            console.log('Loaded manifest:', availableLangs);
+        }
+    } catch (e) {
+        console.log('No manifest found, skipping mapping load');
+    }
 
-    for (const lang of langs) {
+    // Only load mappings listed in the manifest
+    for (const lang of availableLangs) {
         try {
-            const response = await fetch(`/playlists/plex-mapping-${lang}.json`);
+            const response = await fetch(`/plex-mapping-${lang}.json`);
             if (response.ok) {
                 const mapping = await response.json();
                 plexMappingCache[lang] = mapping;
@@ -43,7 +55,7 @@ async function loadPlexMappings() {
                 console.log(`Loaded Plex mapping for ${lang}: ${trackCount} tracks`);
             }
         } catch (e) {
-            // Mapping file doesn't exist for this language, that's fine
+            console.error(`Failed to load mapping for ${lang}:`, e);
         }
     }
     updatePlexMappingStatus();
@@ -415,8 +427,7 @@ async function loadPlexSettings() {
 
 function updatePlexMappingStatus() {
     const statusEl = document.getElementById('plexMappingStatus');
-    const langs = ['de', 'en', 'fr', 'nl', 'ca', 'pl', 'hu', 'nordics'];
-    const loadedLangs = langs.filter(lang => hasPlexMapping(lang));
+    const loadedLangs = Object.keys(plexMappingCache).sort();
 
     if (loadedLangs.length > 0) {
         statusEl.textContent = `Loaded: ${loadedLangs.join(', ')}`;

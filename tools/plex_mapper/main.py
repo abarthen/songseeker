@@ -279,6 +279,30 @@ def parse_csv(csv_path: str) -> tuple[list[str], list[list[str]]]:
     return rows[0], rows[1:]
 
 
+def update_manifest(output_dir: Path) -> None:
+    """Update plex-manifest.json with list of available mapping files."""
+    manifest_path = output_dir / "plex-manifest.json"
+
+    # Find all plex-mapping-*.json files in the directory
+    mapping_files = list(output_dir.glob("plex-mapping-*.json"))
+
+    # Extract language codes from filenames
+    langs = []
+    for f in mapping_files:
+        # plex-mapping-de.json -> de
+        lang = f.stem.replace("plex-mapping-", "")
+        langs.append(lang)
+
+    langs.sort()
+
+    manifest = {"mappings": langs}
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+    print(f"Updated manifest: {manifest_path} ({len(langs)} mappings)")
+
+
 def youtube_to_music_url(url: str) -> str:
     """Convert YouTube URL to YouTube Music URL."""
     if not url:
@@ -554,6 +578,9 @@ def main():
     # Write output
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
+
+    # Update manifest.json to list available mappings
+    update_manifest(output_path.parent)
 
     # Generate missing songs CSV (overwrites each run, skip when using --id)
     if missing_songs and not args.id:

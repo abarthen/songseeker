@@ -16,15 +16,12 @@ RUN chmod +x /opt/start.sh
 
 # Copy web files
 RUN rm -rf /usr/share/nginx/html/*
-COPY *.js *.html *.css *.png /usr/share/nginx/html/
+COPY *.js *.html *.css *.png manifest.json /usr/share/nginx/html/
 COPY icons/* /usr/share/nginx/html/icons/
 # Copy favicon to root for browser default requests
 COPY icons/favicon.ico /usr/share/nginx/html/favicon.ico
 
-# Note: plex-config.json is mounted at runtime, not copied during build
-
-# Create playlists directory - mount your playlists and plex mappings here
-RUN mkdir -m 755 -p /usr/share/nginx/html/playlists
+# Note: plex-config.json, plex-manifest.json, and plex-mapping-*.json are mounted at runtime
 
 # Create empty htpasswd file (will be overwritten by mount)
 RUN touch /etc/nginx/.htpasswd
