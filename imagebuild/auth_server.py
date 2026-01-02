@@ -11,7 +11,8 @@ import secrets
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
-import crypt
+
+from passlib.apache import HtpasswdFile
 
 # Configuration
 HTPASSWD_FILE = os.environ.get("HTPASSWD_FILE", "/etc/nginx/.htpasswd")
@@ -39,34 +40,19 @@ COOKIE_SECRET = load_cookie_secret()
 
 
 def load_htpasswd():
-    """Load users from htpasswd file."""
-    users = {}
+    """Load htpasswd file using passlib."""
     try:
-        with open(HTPASSWD_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if ":" in line:
-                    username, password_hash = line.split(":", 1)
-                    users[username] = password_hash
+        return HtpasswdFile(HTPASSWD_FILE)
     except FileNotFoundError:
         print(f"Warning: {HTPASSWD_FILE} not found")
-    return users
+        return None
 
 
-def verify_password(stored_hash, password):
-    """Verify password against htpasswd hash."""
-    # Support for different hash formats
-    if stored_hash.startswith("$apr1$") or stored_hash.startswith("$1$"):
-        # MD5 or APR1 hash - use crypt
-        return crypt.crypt(password, stored_hash) == stored_hash
-    elif stored_hash.startswith("{SHA}"):
-        # SHA1 hash
-        import base64
-        sha1_hash = base64.b64encode(hashlib.sha1(password.encode()).digest()).decode()
-        return stored_hash == "{SHA}" + sha1_hash
-    else:
-        # Plain crypt
-        return crypt.crypt(password, stored_hash) == stored_hash
+def verify_password(htpasswd, username, password):
+    """Verify password against htpasswd file."""
+    if htpasswd is None:
+        return False
+    return htpasswd.check_password(username, password)
 
 
 def create_session_token(username):
@@ -102,7 +88,7 @@ def verify_session_token(token):
 
 
 class AuthHandler(BaseHTTPRequestHandler):
-    users = None
+    htpasswd = None
 
     def log_message(self, format, *args):
         """Suppress default logging."""
@@ -161,12 +147,12 @@ class AuthHandler(BaseHTTPRequestHandler):
             username = params.get("username", [""])[0]
             password = params.get("password", [""])[0]
 
-            # Load users if not cached
-            if AuthHandler.users is None:
-                AuthHandler.users = load_htpasswd()
+            # Load htpasswd if not cached
+            if AuthHandler.htpasswd is None:
+                AuthHandler.htpasswd = load_htpasswd()
 
             # Verify credentials
-            if username in AuthHandler.users and verify_password(AuthHandler.users[username], password):
+            if verify_password(AuthHandler.htpasswd, username, password):
                 # Create session token
                 token = create_session_token(username)
 
