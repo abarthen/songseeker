@@ -50,6 +50,18 @@ poetry run plex-mapper \
   --debug
 ```
 
+### Update a specific card
+
+```bash
+# Re-match a single card by ID
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --id 38
+
+# Manually set a card using Plex ratingKey (bypasses search)
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --id 38 --rating-key 98870
+```
+
+The `--rating-key` option is useful when Plex search doesn't find a track but you can locate it manually. Get the ratingKey from the Plex URL (e.g., `/library/metadata/98870`) or XML.
+
 ## Command Line Arguments
 
 | Argument | Short | Description |
@@ -65,6 +77,8 @@ poetry run plex-mapper \
 | `--debug` | `-d` | Enable debug output |
 | `--limit` | `-l` | Only process first N songs (for testing) |
 | `--rematch` | `-R` | Re-match all songs (default: skip already matched) |
+| `--id` | `-i` | Only process a specific card ID (updates existing mapping) |
+| `--rating-key` | `-k` | Manually set Plex ratingKey for `--id` (skips search) |
 
 ## Output Files
 

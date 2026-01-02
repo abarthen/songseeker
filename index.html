@@ -44,8 +44,6 @@
     <div id="videoduration">
       Video Duration: <span id="video-duration"></span>
     </div>
-    <div id="videostart">Start Time: <span id="video-start"></span></div>
-    <div id="playbacksource">Source: <span id="playback-source"></span></div>
     <div id="plexdebug">Plex: <span id="plex-debug"></span></div>
 
     <hr />
@@ -82,11 +80,8 @@
 
 
       <div class="text-block">
-        <div class="heading">Plex Integration</div>
+        <div class="heading">Plex</div>
         <div>
-          <input type="checkbox" id="usePlex" name="usePlex" />
-          <label for="usePlex">Use Plex (primary source)</label>
-          <br /><br />
           <span id="plexMappingStatus"></span>
           <br />
           <button id="testPlexConnection" class="button">Test Connection</button>
@@ -109,7 +104,6 @@
       </div>
     </div>
 
-    <div id="player"></div> <!-- Load YouTube Player -->
 
     <script type="module" src="app.js?version=20250830"></script>
 

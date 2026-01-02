@@ -1,11 +1,9 @@
 import QrScanner from "https://unpkg.com/qr-scanner/qr-scanner.min.js";
 import { playerManager } from "./player-manager.js";
 
-let player; // Define player globally (YouTube player)
 let playbackTimer; // hold the timer reference
 let playbackDuration = 30; // Default playback duration
 let qrScanner;
-let csvCache = {};
 let lastDecodedText = ""; // Store the last decoded text
 let currentStartTime = 0;
 
@@ -54,14 +52,9 @@ async function loadPlexMappings() {
 // Plex helper functions
 function getPlexSettings() {
     return {
-        usePlex: localStorage.getItem('usePlex') === 'true',
         serverUrl: plexConfig.serverUrl || '',
         token: plexConfig.token || ''
     };
-}
-
-function savePlexSettings(settings) {
-    localStorage.setItem('usePlex', settings.usePlex);
 }
 
 function getPlexMapping(lang) {
@@ -77,7 +70,7 @@ function lookupPlexTrack(cardId, lang) {
 
 function isPlexConfigured() {
     const settings = getPlexSettings();
-    return settings.usePlex && settings.serverUrl && settings.token;
+    return settings.serverUrl && settings.token;
 }
 
 function hasPlexMapping(lang) {
@@ -95,14 +88,6 @@ async function testPlexConnection() {
     } catch (e) {
         console.error('Plex connection test failed:', e);
         return false;
-    }
-}
-
-function updatePlaybackSourceDisplay(source) {
-    const sourceSpan = document.getElementById('playback-source');
-    if (sourceSpan) {
-        sourceSpan.textContent = source === 'plex' ? 'Plex' : 'YouTube';
-        sourceSpan.className = source;
     }
 }
 
@@ -131,14 +116,15 @@ document.addEventListener('DOMContentLoaded', function () {
             lastDecodedText = result.data; // Update the last decoded text
             handleScannedLink(result.data);
         }
-    }, { 
+    }, {
         highlightScanRegion: true,
         highlightCodeOutline: true,
     }
     );
-        
-    }
-);
+
+    // Set up player manager state change callback
+    playerManager.onStateChange(handlePlayerStateChange);
+});
 
 // Function to determine the type of link and act accordingly
 async function handleScannedLink(decodedText) {
@@ -152,29 +138,21 @@ async function handleScannedLink(decodedText) {
     document.getElementById('startstop-video').style.background = "";
     document.getElementById('startstop-video').classList.remove('playing');
 
-    let youtubeURL = "";
     let plexTrackInfo = null;
-    let usePlex = false;
     let plexDebugInfo = "";
 
-    if (isYoutubeLink(decodedText)) {
-        youtubeURL = decodedText;
-        plexDebugInfo = "Direct YouTube link";
-    } else if (isHitsterLink(decodedText)) {
+    if (isHitsterLink(decodedText)) {
         const hitsterData = parseHitsterUrl(decodedText);
         if (hitsterData) {
             console.log("Hitster data:", hitsterData.id, hitsterData.lang);
 
-            // Check Plex first if configured
-            const settings = getPlexSettings();
+            // Check Plex configuration
             const plexConfigured = isPlexConfigured();
             const hasMapping = hasPlexMapping(hitsterData.lang);
 
-            console.log(`Plex check: usePlex=${settings.usePlex}, configured=${plexConfigured}, hasMapping=${hasMapping}`);
+            console.log(`Plex check: configured=${plexConfigured}, hasMapping=${hasMapping}`);
 
-            if (!settings.usePlex) {
-                plexDebugInfo = `Plex disabled in settings`;
-            } else if (!plexConfig.serverUrl) {
+            if (!plexConfig.serverUrl) {
                 plexDebugInfo = `No server URL in config`;
             } else if (!plexConfig.token) {
                 plexDebugInfo = `No token in config`;
@@ -185,45 +163,18 @@ async function handleScannedLink(decodedText) {
                 plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
                 if (plexTrackInfo) {
                     console.log(`Found in Plex: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`);
-                    usePlex = true;
                     plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
                 } else {
                     plexDebugInfo = `Card #${normalizedCardId} not in mapping (lang=${hitsterData.lang})`;
-                    console.log('Card not found in Plex mapping, falling back to YouTube');
-                }
-            }
-
-            // Fallback to YouTube if Plex not available
-            if (!usePlex) {
-                try {
-                    const csvContent = await getCachedCsv(`/playlists/hitster-${hitsterData.lang}.csv`);
-                    const youtubeLink = lookupYoutubeLink(hitsterData.id, csvContent);
-                    if (youtubeLink) {
-                        console.log(`YouTube Link from CSV: ${youtubeLink}`);
-                        youtubeURL = youtubeLink;
-                    }
-                } catch (error) {
-                    console.error("Failed to fetch CSV:", error);
+                    console.log('Card not found in Plex mapping');
                 }
             }
         } else {
             console.log("Invalid Hitster URL:", decodedText);
             plexDebugInfo = "Invalid Hitster URL";
         }
-    } else if (isRockster(decodedText)) {
-        plexDebugInfo = "Rockster link (YouTube only)";
-        try {
-            const urlObj = new URL(decodedText);
-            const ytCode = urlObj.searchParams.get("yt");
-
-            if (ytCode) {
-                youtubeURL = `https://www.youtube.com/watch?v=${ytCode}`;
-            } else {
-                console.error("Rockster link is missing the 'yt' parameter:", decodedText);
-            }
-        } catch (error) {
-            console.error("Invalid Rockster URL:", decodedText);
-        }
+    } else {
+        plexDebugInfo = "Unknown link format";
     }
 
     // Hide scanner UI
@@ -236,190 +187,44 @@ async function handleScannedLink(decodedText) {
     updatePlexDebug(plexDebugInfo);
 
     // Handle Plex playback
-    if (usePlex && plexTrackInfo) {
+    if (plexTrackInfo) {
         const plexSettings = getPlexSettings();
         playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
-        playerManager.setActivePlayerType('plex');
 
         document.getElementById('video-id').textContent = plexTrackInfo.ratingKey;
         document.getElementById('video-title').textContent = `${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
-        updatePlaybackSourceDisplay('plex');
 
         currentStartTime = 0;
         await playerManager.cue({ trackInfo: plexTrackInfo });
-        return;
-    }
-
-    // Handle YouTube playback
-    if (youtubeURL) {
-        const youtubeLinkData = parseYoutubeLink(youtubeURL);
-        if (youtubeLinkData) {
-            playerManager.setActivePlayerType('youtube');
-            document.getElementById('video-id').textContent = youtubeLinkData.videoId;
-            updatePlaybackSourceDisplay('youtube');
-
-            console.log(youtubeLinkData.videoId);
-            currentStartTime = youtubeLinkData.startTime || 0;
-            player.cueVideoById(youtubeLinkData.videoId, currentStartTime);
-        }
     }
 }
 
-    function isHitsterLink(url) {
-        // Regular expression to match with or without "http://" or "https://"
-        const regex = /^(?:http:\/\/|https:\/\/)?(www\.hitstergame|app\.hitsternordics)\.com\/.+/;
-        return regex.test(url);
-    }
-
-    // Example implementation for isYoutubeLink
-    function isYoutubeLink(url) {
-        return url.startsWith("https://www.youtube.com") || url.startsWith("https://youtu.be") || url.startsWith("https://music.youtube.com/");
-    }
-    function isRockster(url){
-        return url.startsWith("https://rockster.brettspiel.digital")
-    }
-    // Example implementation for parseHitsterUrl
-    function parseHitsterUrl(url) {
-        const regex = /^(?:http:\/\/|https:\/\/)?www\.hitstergame\.com\/(.+?)\/(\d+)$/;
-        const match = url.match(regex);
-        if (match) {
-            // Hitster URL is in the format: https://www.hitstergame.com/{lang}/{id}
-            // lang can be things like "en", "de", "pt", etc., but also "de/aaaa0007"
-            const processedLang = match[1].replace(/\//g, "-");
-            return { lang: processedLang, id: match[2] };
-        }
-        const regex_nordics = /^(?:http:\/\/|https:\/\/)?app.hitster(nordics).com\/resources\/songs\/(\d+)$/;
-        const match_nordics = url.match(regex_nordics);
-        if (match_nordics) {
-            // Hitster URL can also be in the format: https://app.hitsternordics.com/resources/songs/{id}
-            return { lang: match_nordics[1], id: match_nordics[2] };
-        }
-        return null;
-    }
-
-    // Looks up the YouTube link in the CSV content based on the ID
-    function lookupYoutubeLink(id, csvContent) {
-        const headers = csvContent[0]; // Get the headers from the CSV content
-        const cardIndex = headers.indexOf('Card#');
-        const urlIndex = headers.indexOf('URL');
-
-        const targetId = parseInt(id, 10); // Convert the incoming ID to an integer
-        const lines = csvContent.slice(1); // Exclude the first row (headers) from the lines
-
-        if (cardIndex === -1 || urlIndex === -1) {
-            throw new Error('Card# or URL column not found');
-        }
-
-        for (let row of lines) {
-            const csvId = parseInt(row[cardIndex], 10);
-            if (csvId === targetId) {
-                return row[urlIndex].trim(); // Return the YouTube link
-            }
-        }
-        return null; // If no matching ID is found
-
-    }
-
-    // Could also use external library, but for simplicity, we'll define it here
-    function parseCSV(text) {
-        const lines = text.split('\n');
-        return lines.map(line => {
-            const result = [];
-            let startValueIdx = 0;
-            let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-                if (line[i] === '"' && line[i-1] !== '\\') {
-                    inQuotes = !inQuotes;
-                } else if (line[i] === ',' && !inQuotes) {
-                    result.push(line.substring(startValueIdx, i).trim().replace(/^"(.*)"$/, '$1'));
-                    startValueIdx = i + 1;
-                }
-            }
-            result.push(line.substring(startValueIdx).trim().replace(/^"(.*)"$/, '$1')); // Push the last value
-            return result;
-        });
-    }
-
-    async function getCachedCsv(url) {
-        if (!csvCache[url]) { // Check if the URL is not in the cache
-            console.log(`URL not cached, fetching CSV from URL: ${url}`);
-            const response = await fetch(url);
-            const data = await response.text();
-            csvCache[url] = parseCSV(data); // Cache the parsed CSV data using the URL as a key
-        }
-        return csvCache[url]; // Return the cached data for the URL
-    }
-
-    function parseYoutubeLink(url) {
-        // First, ensure that the URL is decoded (handles encoded URLs)
-        url = decodeURIComponent(url);
-    
-        const regex = /^https?:\/\/(www\.youtube\.com\/watch\?v=|youtu\.be\/|music\.youtube\.com\/watch\?v=)(.{11})(.*)/;
-        const match = url.match(regex);
-        if (match) {
-            const queryParams = new URLSearchParams(match[3]); // Correctly capture and parse the query string part of the URL
-            const videoId = match[2];
-            let startTime = queryParams.get('start') || queryParams.get('t');
-            const endTime = queryParams.get('end');
-    
-            document.getElementById('video-start').textContent = startTime;
-            // Normalize and parse 't' and 'start' parameters
-            startTime = normalizeTimeParameter(startTime);
-            const parsedEndTime = normalizeTimeParameter(endTime);
-    
-            return { videoId, startTime, endTime: parsedEndTime };
-        }
-        return null;
-    }
-    
-    function normalizeTimeParameter(timeValue) {
-        if (!timeValue) return null; // Return null if timeValue is falsy
-    
-        // Handle time formats (e.g., 't=1m15s' or '75s')
-        let seconds = 0;
-        if (timeValue.endsWith('s')) {
-            seconds = parseInt(timeValue, 10);
-        } else {
-            // Additional parsing can be added here for 'm', 'h' formats if needed
-            seconds = parseInt(timeValue, 10);
-        }
-    
-        return isNaN(seconds) ? null : seconds;
-    }
-
-// This function creates an <iframe> (and YouTube player) after the API code downloads.
-function onYouTubeIframeAPIReady() {
-    player = new YT.Player('player', {
-        height: '0',
-        width: '0',
-        events: {
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange
-        }
-    });
-    // Register YouTube player with the player manager
-    playerManager.setYouTubePlayer(player);
-}
-window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
-
-// Load the YouTube IFrame API script
-const tag = document.createElement('script');
-tag.src = "https://www.youtube.com/iframe_api";
-const firstScriptTag = document.getElementsByTagName('script')[0];
-firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-// The API will call this function when the video player is ready.
-function onPlayerReady(event) {
-    // Cue a video using the videoId from the QR code (example videoId used here)
-    // player.cueVideoById('dQw4w9WgXcQ');
-    event.target.setVolume(100);
-    event.target.unMute();
-
-    // Set up player manager state change callback for Plex
-    playerManager.onStateChange(handlePlayerStateChange);
+function isHitsterLink(url) {
+    // Regular expression to match with or without "http://" or "https://"
+    const regex = /^(?:http:\/\/|https:\/\/)?(www\.hitstergame|app\.hitsternordics)\.com\/.+/;
+    return regex.test(url);
 }
 
-// Unified state change handler (works for both YouTube and Plex via player manager)
+// Example implementation for parseHitsterUrl
+function parseHitsterUrl(url) {
+    const regex = /^(?:http:\/\/|https:\/\/)?www\.hitstergame\.com\/(.+?)\/(\d+)$/;
+    const match = url.match(regex);
+    if (match) {
+        // Hitster URL is in the format: https://www.hitstergame.com/{lang}/{id}
+        // lang can be things like "en", "de", "pt", etc., but also "de/aaaa0007"
+        const processedLang = match[1].replace(/\//g, "-");
+        return { lang: processedLang, id: match[2] };
+    }
+    const regex_nordics = /^(?:http:\/\/|https:\/\/)?app.hitster(nordics).com\/resources\/songs\/(\d+)$/;
+    const match_nordics = url.match(regex_nordics);
+    if (match_nordics) {
+        // Hitster URL can also be in the format: https://app.hitsternordics.com/resources/songs/{id}
+        return { lang: match_nordics[1], id: match_nordics[2] };
+    }
+    return null;
+}
+
+// Unified state change handler for Plex
 function handlePlayerStateChange(event) {
     const state = event.data;
     const PlayerState = playerManager.PlayerState;
@@ -429,31 +234,27 @@ function handlePlayerStateChange(event) {
         document.getElementById('startstop-video').style.background = "green";
 
         // Get track info from Plex player
-        if (playerManager.isPlexActive()) {
-            const videoData = playerManager.getVideoData();
-            document.getElementById('video-title').textContent = videoData.title;
+        const videoData = playerManager.getVideoData();
+        document.getElementById('video-title').textContent = videoData.title;
 
-            // Wait for duration to be available
-            setTimeout(() => {
-                const duration = playerManager.getDuration();
-                if (duration) {
-                    document.getElementById('video-duration').textContent = formatDuration(duration);
-                }
-            }, 500);
-        }
+        // Wait for duration to be available
+        setTimeout(() => {
+            const duration = playerManager.getDuration();
+            if (duration) {
+                document.getElementById('video-duration').textContent = formatDuration(duration);
+            }
+        }, 500);
 
-        // Handle autoplay for Plex
-        if (playerManager.isPlexActive()) {
-            if (isIOS()) {
+        // Handle autoplay
+        if (isIOS()) {
+            playerManager.play();
+        } else if (document.getElementById('autoplay').checked) {
+            document.getElementById('startstop-video').innerHTML = "Stop";
+            document.getElementById('startstop-video').classList.add('playing');
+            if (document.getElementById('randomplayback').checked) {
+                playVideoAtRandomStartTime();
+            } else {
                 playerManager.play();
-            } else if (document.getElementById('autoplay').checked) {
-                document.getElementById('startstop-video').innerHTML = "Stop";
-                document.getElementById('startstop-video').classList.add('playing');
-                if (document.getElementById('randomplayback').checked) {
-                    playVideoAtRandomStartTime();
-                } else {
-                    playerManager.play();
-                }
             }
         }
     } else if (state === PlayerState.PLAYING) {
@@ -465,47 +266,6 @@ function handlePlayerStateChange(event) {
         document.getElementById('startstop-video').style.background = "green";
         document.getElementById('startstop-video').classList.remove('playing');
     } else if (state === PlayerState.BUFFERING) {
-        document.getElementById('startstop-video').style.background = "orange";
-    }
-}
-
-// Display video information when it's cued
-function onPlayerStateChange(event) {
-    if (event.data == YT.PlayerState.CUED) {
-        document.getElementById('startstop-video').disabled = false;
-        document.getElementById('startstop-video').style.background = "green";
-        // Display title and duration
-        var videoData = player.getVideoData();
-        document.getElementById('video-title').textContent = videoData.title;
-        var duration = player.getDuration();
-        document.getElementById('video-duration').textContent = formatDuration(duration);
-        // We do need this on iOS devices otherwise one would need to press play twice
-        if (isIOS()) {
-            player.playVideo();
-        }
-        // Check for Autoplay, there is not autoplay on iOS
-        else if (document.getElementById('autoplay').checked == true) {
-            document.getElementById('startstop-video').innerHTML = "Stop";
-            document.getElementById('startstop-video').classList.add('playing');
-            if (document.getElementById('randomplayback').checked == true) {
-                playVideoAtRandomStartTime();
-            }
-            else {
-                player.playVideo();
-            }
-        }
-    }
-    else if (event.data == YT.PlayerState.PLAYING) {
-        document.getElementById('startstop-video').style.background = "red";
-        document.getElementById('startstop-video').innerHTML = "Stop";
-        document.getElementById('startstop-video').classList.add('playing');
-    }
-    else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
-        document.getElementById('startstop-video').innerHTML = "Play";
-        document.getElementById('startstop-video').style.background = "green";
-        document.getElementById('startstop-video').classList.remove('playing');
-    }
-    else if (event.data == YT.PlayerState.BUFFERING) {
         document.getElementById('startstop-video').style.background = "orange";
     }
 }
@@ -525,73 +285,22 @@ document.getElementById('startstop-video').addEventListener('click', function() 
         if (document.getElementById('randomplayback').checked == true) {
             playVideoAtRandomStartTime();
         } else {
-            // Use player manager for unified playback
-            if (playerManager.isPlexActive()) {
-                playerManager.play();
-            } else {
-                player.playVideo();
-            }
+            playerManager.play();
         }
     } else {
         this.innerHTML = "Play";
         this.classList.remove('playing');
-        // Use player manager for unified pause
-        if (playerManager.isPlexActive()) {
-            playerManager.pause();
-        } else {
-            player.pauseVideo();
-        }
+        playerManager.pause();
     }
 });
 
 function playVideoAtRandomStartTime() {
-    const minStartPercentage = 0.10;
-    const maxEndPercentage = 0.90;
     playbackDuration = parseInt(document.getElementById('playback-duration').value, 10) || 30;
 
-    // Use player manager for Plex, otherwise use YouTube player
-    if (playerManager.isPlexActive()) {
-        playerManager.playAtRandomStartTime(playbackDuration, currentStartTime, () => {
-            document.getElementById('startstop-video').innerHTML = "Play";
-        });
-        return;
-    }
-
-    // YouTube playback
-    let videoDuration = player.getDuration();
-    let startTime = currentStartTime;
-    let endTime = playbackDuration;
-
-    // Adjust start and end time based on video duration
-    const minStartTime = Math.max(currentStartTime, videoDuration * minStartPercentage);
-    const maxEndTime = videoDuration * maxEndPercentage;
-
-    // Ensure the video ends by 90% of its total duration
-    if (endTime > maxEndTime) {
-        endTime = maxEndTime;
-        startTime = Math.max(minStartTime, endTime - playbackDuration);
-    }
-
-    // If custom start time is 0 or very close to the beginning, pick a random start time within the range
-    if (startTime <= minStartTime) {
-        const range = maxEndTime - minStartTime - playbackDuration;
-        const randomOffset = Math.random() * range;
-        startTime = minStartTime + randomOffset;
-        endTime = startTime + playbackDuration;
-    }
-
-    // Cue video at calculated start time and play
-    console.log("play random", startTime, endTime);
-    player.seekTo(startTime, true);
-    player.playVideo();
-
-    clearTimeout(playbackTimer); // Clear any existing timer
-    // Schedule video stop after the specified duration
-    playbackTimer = setTimeout(() => {
-        player.pauseVideo();
+    playerManager.playAtRandomStartTime(playbackDuration, currentStartTime, () => {
         document.getElementById('startstop-video').innerHTML = "Play";
         document.getElementById('startstop-video').classList.remove('playing');
-    }, (endTime - startTime) * 1000); // Convert to milliseconds
+    });
 }
 
 // Assuming you have an element with the ID 'qr-reader' for the QR scanner
@@ -615,7 +324,6 @@ document.getElementById('startScanButton').addEventListener('click', function() 
 
 document.getElementById('debugButton').addEventListener('click', function() {
     handleScannedLink("https://www.hitstergame.com/de-aaaa0012/237");
-    // handleScannedLink("https://rockster.brettspiel.digital/?yt=1bP-fFxAMOI");
 });
 
 document.getElementById('songinfo').addEventListener('click', function() {
@@ -623,22 +331,16 @@ document.getElementById('songinfo').addEventListener('click', function() {
     var videoid = document.getElementById('videoid');
     var videotitle = document.getElementById('videotitle');
     var videoduration = document.getElementById('videoduration');
-    var videostart = document.getElementById('videostart');
-    var playbacksource = document.getElementById('playbacksource');
     var plexdebug = document.getElementById('plexdebug');
     if(cb.checked == true){
         videoid.style.display = 'block';
         videotitle.style.display = 'block';
         videoduration.style.display = 'block';
-        videostart.style.display = 'block';
-        playbacksource.style.display = 'block';
         plexdebug.style.display = 'block';
     } else {
         videoid.style.display = 'none';
         videotitle.style.display = 'none';
         videoduration.style.display = 'none';
-        videostart.style.display = 'none';
-        playbacksource.style.display = 'none';
         plexdebug.style.display = 'none';
     }
 });
@@ -709,9 +411,6 @@ function getCookies() {
 async function loadPlexSettings() {
     await loadPlexConfig();
     await loadPlexMappings();
-
-    const settings = getPlexSettings();
-    document.getElementById('usePlex').checked = settings.usePlex;
 }
 
 function updatePlexMappingStatus() {
@@ -729,12 +428,6 @@ function updatePlexMappingStatus() {
 }
 
 // Plex settings event listeners
-document.getElementById('usePlex').addEventListener('change', function() {
-    const settings = getPlexSettings();
-    settings.usePlex = this.checked;
-    savePlexSettings(settings);
-});
-
 document.getElementById('testPlexConnection').addEventListener('click', async function() {
     const statusEl = document.getElementById('plexConnectionStatus');
 

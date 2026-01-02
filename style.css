@@ -162,8 +162,6 @@ hr {
 #videoid,
 #videotitle,
 #videoduration,
-#videostart,
-#playbacksource,
 #plexdebug {
   display: none;
   margin: 0.6rem auto;
@@ -175,17 +173,6 @@ hr {
   color: #fff;
 }
 
-#playback-source {
-  font-weight: 700;
-}
-
-#playback-source.plex {
-  color: #e5a00d;
-}
-
-#playback-source.youtube {
-  color: #ff0000;
-}
 
 .settings_div {
   width: 100%;

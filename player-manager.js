@@ -1,21 +1,18 @@
 /**
  * Player Manager for SongSeeker
  *
- * Provides a unified interface for YouTube and Plex players.
- * Handles switching between players and routing playback commands.
+ * Provides a unified interface for Plex audio playback.
  */
 
 import { PlexPlayer } from './plex-player.js';
 
 export class PlayerManager {
     constructor() {
-        this.youtubePlayer = null;
         this.plexPlayer = null;
-        this.activePlayerType = 'youtube'; // 'youtube' or 'plex'
         this.stateChangeCallback = null;
         this.playbackTimer = null;
 
-        // Shared player states
+        // Player states
         this.PlayerState = {
             UNSTARTED: -1,
             ENDED: 0,
@@ -39,46 +36,10 @@ export class PlayerManager {
 
         // Set up state change forwarding
         this.plexPlayer.onStateChange((event) => {
-            if (this.activePlayerType === 'plex' && this.stateChangeCallback) {
+            if (this.stateChangeCallback) {
                 this.stateChangeCallback(event);
             }
         });
-    }
-
-    /**
-     * Set the YouTube player instance (created by YouTube IFrame API)
-     * @param {object} ytPlayer - YouTube player instance
-     */
-    setYouTubePlayer(ytPlayer) {
-        this.youtubePlayer = ytPlayer;
-    }
-
-    /**
-     * Get the currently active player
-     * @returns {object} The active player instance
-     */
-    getActivePlayer() {
-        return this.activePlayerType === 'plex' ? this.plexPlayer : this.youtubePlayer;
-    }
-
-    /**
-     * Set the active player type
-     * @param {string} type - 'youtube' or 'plex'
-     */
-    setActivePlayerType(type) {
-        // Stop current player if switching
-        if (this.activePlayerType !== type) {
-            this.stop();
-        }
-        this.activePlayerType = type;
-    }
-
-    /**
-     * Check if Plex is the active player
-     * @returns {boolean}
-     */
-    isPlexActive() {
-        return this.activePlayerType === 'plex';
     }
 
     /**
@@ -99,29 +60,19 @@ export class PlayerManager {
 
     /**
      * Cue content for playback
-     * For YouTube: cueVideoById
-     * For Plex: cueTrack
-     *
-     * @param {object} options - { videoId, startTime } for YouTube or { trackInfo } for Plex
+     * @param {object} options - { trackInfo } for Plex track
      */
     async cue(options) {
-        const player = this.getActivePlayer();
-        if (!player) return;
-
-        if (this.activePlayerType === 'plex') {
-            await this.plexPlayer.cueTrack(options.trackInfo);
-        } else {
-            player.cueVideoById(options.videoId, options.startTime || 0);
-        }
+        if (!this.plexPlayer) return;
+        await this.plexPlayer.cueTrack(options.trackInfo);
     }
 
     /**
      * Start playback
      */
     play() {
-        const player = this.getActivePlayer();
-        if (player) {
-            player.playVideo();
+        if (this.plexPlayer) {
+            this.plexPlayer.playVideo();
         }
     }
 
@@ -129,9 +80,8 @@ export class PlayerManager {
      * Pause playback
      */
     pause() {
-        const player = this.getActivePlayer();
-        if (player) {
-            player.pauseVideo();
+        if (this.plexPlayer) {
+            this.plexPlayer.pauseVideo();
         }
         this.clearPlaybackTimer();
     }
@@ -140,13 +90,6 @@ export class PlayerManager {
      * Stop playback
      */
     stop() {
-        if (this.youtubePlayer) {
-            try {
-                this.youtubePlayer.pauseVideo();
-            } catch (e) {
-                // Player might not be ready
-            }
-        }
         if (this.plexPlayer) {
             this.plexPlayer.pauseVideo();
         }
@@ -159,9 +102,8 @@ export class PlayerManager {
      * @param {boolean} allowSeekAhead - Allow seeking beyond buffered content
      */
     seekTo(seconds, allowSeekAhead = true) {
-        const player = this.getActivePlayer();
-        if (player) {
-            player.seekTo(seconds, allowSeekAhead);
+        if (this.plexPlayer) {
+            this.plexPlayer.seekTo(seconds, allowSeekAhead);
         }
     }
 
@@ -170,8 +112,7 @@ export class PlayerManager {
      * @returns {number} Current time in seconds
      */
     getCurrentTime() {
-        const player = this.getActivePlayer();
-        return player ? player.getCurrentTime() : 0;
+        return this.plexPlayer ? this.plexPlayer.getCurrentTime() : 0;
     }
 
     /**
@@ -179,8 +120,7 @@ export class PlayerManager {
      * @returns {number} Duration in seconds
      */
     getDuration() {
-        const player = this.getActivePlayer();
-        return player ? player.getDuration() : 0;
+        return this.plexPlayer ? this.plexPlayer.getDuration() : 0;
     }
 
     /**
@@ -188,9 +128,8 @@ export class PlayerManager {
      * @param {number} volume - Volume level (0-100)
      */
     setVolume(volume) {
-        const player = this.getActivePlayer();
-        if (player) {
-            player.setVolume(volume);
+        if (this.plexPlayer) {
+            this.plexPlayer.setVolume(volume);
         }
     }
 
@@ -198,19 +137,17 @@ export class PlayerManager {
      * Unmute
      */
     unMute() {
-        const player = this.getActivePlayer();
-        if (player) {
-            player.unMute();
+        if (this.plexPlayer) {
+            this.plexPlayer.unMute();
         }
     }
 
     /**
-     * Get video/track data
+     * Get track data
      * @returns {object} Media metadata
      */
     getVideoData() {
-        const player = this.getActivePlayer();
-        return player ? player.getVideoData() : {};
+        return this.plexPlayer ? this.plexPlayer.getVideoData() : {};
     }
 
     /**
@@ -243,8 +180,7 @@ export class PlayerManager {
      * @param {function} onStop - Callback when playback stops
      */
     playAtRandomStartTime(playbackDuration, currentStartTime = 0, onStop) {
-        const player = this.getActivePlayer();
-        if (!player) return;
+        if (!this.plexPlayer) return;
 
         const minStartPercentage = 0.10;
         const maxEndPercentage = 0.90;

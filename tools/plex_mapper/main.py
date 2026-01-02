@@ -35,6 +35,26 @@ def load_plex_config(config_path: Path) -> tuple[str, str]:
         return None, None
 
 
+def normalize_for_comparison(text: str) -> str:
+    """Normalize text for fuzzy comparison by removing spaces, punctuation, and lowercasing."""
+    if not text:
+        return ""
+    # Lowercase
+    text = text.lower()
+    # Normalize & to and (before removing spaces)
+    text = text.replace(" & ", " and ").replace("&", " and ")
+    # Remove common punctuation and spaces
+    text = re.sub(r"[\s\-_'.,:;!?]+", "", text)
+    # Remove accents (basic normalization)
+    text = text.replace("ä", "a").replace("ö", "o").replace("ü", "u")
+    text = text.replace("é", "e").replace("è", "e").replace("ê", "e")
+    text = text.replace("á", "a").replace("à", "a").replace("â", "a")
+    text = text.replace("ó", "o").replace("ò", "o").replace("ô", "o")
+    text = text.replace("ú", "u").replace("ù", "u").replace("û", "u")
+    text = text.replace("ñ", "n").replace("ß", "ss")
+    return text
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate Plex mappings for SongSeeker Hitster cards"
@@ -72,8 +92,19 @@ def parse_args():
     parser.add_argument(
         "--rematch", "-R", action="store_true", help="Re-match all songs (default: skip already matched)"
     )
+    parser.add_argument(
+        "--id", "-i", help="Only process a specific card ID (updates existing mapping)"
+    )
+    parser.add_argument(
+        "--rating-key", "-k", help="Manually set Plex ratingKey for --id (skips search, fetches metadata directly)"
+    )
 
     args = parser.parse_args()
+
+    # Validate --rating-key requires --id
+    if args.rating_key and not args.id:
+        print("Error: --rating-key requires --id to specify which card to update")
+        sys.exit(1)
 
     # Load config file if server/token not provided
     if not args.server or not args.token:
@@ -103,6 +134,44 @@ def plex_request(url: str, token: str) -> dict:
     return response.json()
 
 
+def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool = False) -> dict | None:
+    """Fetch track metadata directly by ratingKey."""
+    try:
+        url = f"{server_url}/library/metadata/{rating_key}"
+        if debug:
+            print(f"  DEBUG: Fetching: {url}")
+
+        response = plex_request(url, token)
+        metadata = response.get("MediaContainer", {}).get("Metadata", [])
+
+        if not metadata:
+            print(f"  Error: No track found with ratingKey {rating_key}")
+            return None
+
+        track = metadata[0]
+        media = track.get("Media", [{}])[0]
+        parts = media.get("Part", [{}])[0]
+
+        result = {
+            "ratingKey": track.get("ratingKey"),
+            "title": track.get("title"),
+            "artist": track.get("grandparentTitle") or track.get("originalTitle"),
+            "album": track.get("parentTitle"),
+            "year": track.get("parentYear") or track.get("year"),
+            "duration": track.get("duration"),
+            "partKey": parts.get("key"),
+        }
+
+        if debug:
+            print(f"  DEBUG: Found: {result['artist']} - {result['title']} ({result['year']})")
+
+        return result
+
+    except Exception as e:
+        print(f"  Error fetching track: {e}")
+        return None
+
+
 def search_plex(server_url: str, token: str, artist: str, title: str, expected_year: int, debug: bool = False) -> dict | None:
     """Search Plex library for a track with exact year match."""
     # Clean up search terms
@@ -123,7 +192,7 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
 
     for query in search_queries:
         try:
-            search_url = f"{server_url}/search?query={quote(query)}&type=10"
+            search_url = f"{server_url}/search?query={quote(query)}&type=10&limit=100"
             if debug:
                 print(f"  DEBUG: Searching: {search_url}")
 
@@ -143,14 +212,19 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                 if debug:
                     print(f"  DEBUG: Checking: \"{track.get('title')}\" by \"{track.get('grandparentTitle') or track.get('originalTitle')}\" ({track_year})")
 
-                # Check if this is a reasonable match
+                # Check if this is a reasonable match (using normalized comparison)
+                norm_clean_title = normalize_for_comparison(clean_title)
+                norm_track_title = normalize_for_comparison(track_title)
+                norm_clean_artist = normalize_for_comparison(clean_artist)
+                norm_track_artist = normalize_for_comparison(track_artist)
+
                 title_match = (
-                    clean_title.lower() in track_title or
-                    track_title in clean_title.lower()
+                    norm_clean_title in norm_track_title or
+                    norm_track_title in norm_clean_title
                 )
                 artist_match = (
-                    clean_artist.lower() in track_artist or
-                    track_artist in clean_artist.lower()
+                    norm_clean_artist in norm_track_artist or
+                    norm_track_artist in norm_clean_artist
                 )
 
                 if title_match and artist_match:
@@ -199,6 +273,9 @@ def parse_csv(csv_path: str) -> tuple[list[str], list[list[str]]]:
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         rows = list(reader)
+    # Skip Excel's sep= directive if present
+    if rows and rows[0] and rows[0][0].lower().startswith("sep="):
+        rows = rows[1:]
     return rows[0], rows[1:]
 
 
@@ -375,9 +452,9 @@ def main():
         lang = csv_basename.replace("hitster-", "")
         output_path = Path(f"plex-mapping-{lang}.json")
 
-    # Load existing mapping if not rematching
+    # Load existing mapping if not rematching (or if using --id, always load)
     existing_mapping = {}
-    if not args.rematch and output_path.exists():
+    if (args.id or not args.rematch) and output_path.exists():
         try:
             with open(output_path, "r", encoding="utf-8") as f:
                 existing_mapping = json.load(f)
@@ -394,8 +471,32 @@ def main():
     skipped = 0
     missing_songs = []
 
+    # Filter to specific ID if specified
+    if args.id:
+        songs = [row for row in rows if row[card_idx] == args.id]
+        if not songs:
+            print(f"\nError: Card ID '{args.id}' not found in CSV")
+            sys.exit(1)
+
+        # Handle manual ratingKey override
+        if args.rating_key:
+            print(f"\nManually setting card ID {args.id} to ratingKey {args.rating_key}...\n")
+            plex_track = fetch_plex_track(server_url, args.token, args.rating_key, args.debug)
+            if plex_track:
+                mapping[args.id] = plex_track
+                print(f"SUCCESS: {plex_track['artist']} - {plex_track['title']} ({plex_track['year']})")
+                # Write output and exit early
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(mapping, f, indent=2)
+                print(f"\nMapping saved to: {output_path}")
+                return
+            else:
+                print("FAILED: Could not fetch track metadata")
+                sys.exit(1)
+
+        print(f"\nProcessing card ID {args.id}...\n")
     # Apply limit if specified
-    if args.limit > 0:
+    elif args.limit > 0:
         songs = songs[:args.limit]
         print(f"\nProcessing first {args.limit} songs (limit applied)...\n")
     else:
@@ -408,8 +509,8 @@ def main():
         year = row[year_idx]
         url = row[url_idx] if url_idx >= 0 else ""
 
-        # Skip already matched songs (unless rematching)
-        if not args.rematch and card_id in existing_mapping and existing_mapping[card_id] is not None:
+        # Skip already matched songs (unless rematching or specific ID)
+        if not args.id and not args.rematch and card_id in existing_mapping and existing_mapping[card_id] is not None:
             if args.debug:
                 print(f"[{i + 1}/{len(songs)}] Skipping (already matched): {artist} - {title}")
             skipped += 1
@@ -454,8 +555,8 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
 
-    # Generate missing songs CSV (overwrites each run)
-    if missing_songs:
+    # Generate missing songs CSV (overwrites each run, skip when using --id)
+    if missing_songs and not args.id:
         csv_basename = csv_path.stem
         lang = csv_basename.replace("hitster-", "")
         missing_path = Path(f"missing-{lang}.csv")
