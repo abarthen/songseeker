@@ -131,3 +131,7 @@ dist
 
 tools/*.csv
 tools/plex-mapping-*.json
+tools/downloads/
+
+# Plex configuration (contains sensitive token)
+plex-config.json
