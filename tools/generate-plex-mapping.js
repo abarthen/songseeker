@@ -398,12 +398,15 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Determine output filename
+    // Determine output filename with timestamp
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
     let outputPath = config.output;
     if (!outputPath) {
         const csvBasename = path.basename(config.csv, '.csv');
         const lang = csvBasename.replace('hitster-', '');
-        outputPath = `plex-mapping-${lang}.json`;
+        outputPath = `plex-mapping-${lang}_${timestamp}.json`;
     }
 
     // Write output

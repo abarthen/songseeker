@@ -11,49 +11,61 @@ let currentStartTime = 0;
 
 // Plex integration
 let plexMappingCache = {}; // In-memory cache for Plex mappings
+let plexConfig = { serverUrl: '', token: '' }; // Loaded from plex-config.json
 
 // Function to detect iOS devices
 function isIOS() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 }
 
+// Load Plex config from file
+async function loadPlexConfig() {
+    try {
+        const response = await fetch('/plex-config.json');
+        if (response.ok) {
+            plexConfig = await response.json();
+            console.log('Plex config loaded');
+        }
+    } catch (e) {
+        console.error('Failed to load plex-config.json:', e);
+    }
+}
+
+// Load Plex mappings from playlists directory
+async function loadPlexMappings() {
+    const langs = ['de', 'en', 'fr', 'nl', 'ca', 'pl', 'hu', 'nordics'];
+
+    for (const lang of langs) {
+        try {
+            const response = await fetch(`/playlists/plex-mapping-${lang}.json`);
+            if (response.ok) {
+                const mapping = await response.json();
+                plexMappingCache[lang] = mapping;
+                const trackCount = Object.values(mapping).filter(v => v !== null).length;
+                console.log(`Loaded Plex mapping for ${lang}: ${trackCount} tracks`);
+            }
+        } catch (e) {
+            // Mapping file doesn't exist for this language, that's fine
+        }
+    }
+    updatePlexMappingStatus();
+}
+
 // Plex helper functions
 function getPlexSettings() {
     return {
         usePlex: localStorage.getItem('usePlex') === 'true',
-        serverUrl: localStorage.getItem('plexServerUrl') || '',
-        token: localStorage.getItem('plexToken') || ''
+        serverUrl: plexConfig.serverUrl || '',
+        token: plexConfig.token || ''
     };
 }
 
 function savePlexSettings(settings) {
     localStorage.setItem('usePlex', settings.usePlex);
-    localStorage.setItem('plexServerUrl', settings.serverUrl);
-    localStorage.setItem('plexToken', settings.token);
 }
 
 function getPlexMapping(lang) {
-    const key = `plexMapping-${lang}`;
-    if (!plexMappingCache[lang]) {
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            try {
-                plexMappingCache[lang] = JSON.parse(stored);
-            } catch (e) {
-                console.error('Failed to parse Plex mapping:', e);
-                plexMappingCache[lang] = {};
-            }
-        } else {
-            plexMappingCache[lang] = {};
-        }
-    }
-    return plexMappingCache[lang];
-}
-
-function savePlexMapping(lang, mapping) {
-    const key = `plexMapping-${lang}`;
-    plexMappingCache[lang] = mapping;
-    localStorage.setItem(key, JSON.stringify(mapping));
+    return plexMappingCache[lang] || {};
 }
 
 function lookupPlexTrack(cardId, lang) {
@@ -71,9 +83,9 @@ function hasPlexMapping(lang) {
     return Object.keys(mapping).length > 0;
 }
 
-async function testPlexConnection(serverUrl, token) {
+async function testPlexConnection() {
     try {
-        const url = `${serverUrl.replace(/\/$/, '')}/?X-Plex-Token=${token}`;
+        const url = `${plexConfig.serverUrl.replace(/\/$/, '')}/?X-Plex-Token=${plexConfig.token}`;
         const response = await fetch(url, {
             headers: { 'Accept': 'application/json' }
         });
@@ -637,15 +649,13 @@ function getCookies() {
     listCookies();
 }
 
-// Load Plex settings from localStorage
-function loadPlexSettings() {
+// Load Plex settings
+async function loadPlexSettings() {
+    await loadPlexConfig();
+    await loadPlexMappings();
+
     const settings = getPlexSettings();
     document.getElementById('usePlex').checked = settings.usePlex;
-    document.getElementById('plexServerUrl').value = settings.serverUrl;
-    document.getElementById('plexToken').value = settings.token;
-
-    // Update mapping status display
-    updatePlexMappingStatus();
 }
 
 function updatePlexMappingStatus() {
@@ -669,59 +679,11 @@ document.getElementById('usePlex').addEventListener('change', function() {
     savePlexSettings(settings);
 });
 
-document.getElementById('plexServerUrl').addEventListener('change', function() {
-    const settings = getPlexSettings();
-    settings.serverUrl = this.value.trim();
-    savePlexSettings(settings);
-});
-
-document.getElementById('plexToken').addEventListener('change', function() {
-    const settings = getPlexSettings();
-    settings.token = this.value.trim();
-    savePlexSettings(settings);
-});
-
-document.getElementById('plexMappingFile').addEventListener('change', async function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const statusEl = document.getElementById('plexMappingStatus');
-    statusEl.textContent = 'Loading...';
-    statusEl.className = 'loading';
-
-    try {
-        const text = await file.text();
-        const mapping = JSON.parse(text);
-
-        // Extract language from filename (e.g., "plex-mapping-de.json" -> "de")
-        const langMatch = file.name.match(/plex-mapping-(\w+)\.json/);
-        const lang = langMatch ? langMatch[1] : 'de';
-
-        savePlexMapping(lang, mapping);
-
-        const trackCount = Object.values(mapping).filter(v => v !== null).length;
-        const totalCount = Object.keys(mapping).length;
-        statusEl.textContent = `Loaded ${lang}: ${trackCount}/${totalCount} tracks`;
-        statusEl.className = 'success';
-
-        updatePlexMappingStatus();
-    } catch (e) {
-        console.error('Failed to load Plex mapping:', e);
-        statusEl.textContent = 'Error loading file';
-        statusEl.className = 'error';
-    }
-
-    // Clear the file input so the same file can be loaded again
-    this.value = '';
-});
-
 document.getElementById('testPlexConnection').addEventListener('click', async function() {
     const statusEl = document.getElementById('plexConnectionStatus');
-    const serverUrl = document.getElementById('plexServerUrl').value.trim();
-    const token = document.getElementById('plexToken').value.trim();
 
-    if (!serverUrl || !token) {
-        statusEl.textContent = 'Enter server URL and token';
+    if (!plexConfig.serverUrl || !plexConfig.token) {
+        statusEl.textContent = 'Config not loaded';
         statusEl.className = 'error';
         return;
     }
@@ -729,7 +691,7 @@ document.getElementById('testPlexConnection').addEventListener('click', async fu
     statusEl.textContent = 'Testing...';
     statusEl.className = 'loading';
 
-    const success = await testPlexConnection(serverUrl, token);
+    const success = await testPlexConnection();
 
     if (success) {
         statusEl.textContent = 'Connected!';
