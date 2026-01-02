@@ -425,6 +425,7 @@ function handlePlayerStateChange(event) {
     const PlayerState = playerManager.PlayerState;
 
     if (state === PlayerState.CUED) {
+        document.getElementById('startstop-video').disabled = false;
         document.getElementById('startstop-video').style.background = "green";
 
         // Get track info from Plex player
@@ -471,6 +472,7 @@ function handlePlayerStateChange(event) {
 // Display video information when it's cued
 function onPlayerStateChange(event) {
     if (event.data == YT.PlayerState.CUED) {
+        document.getElementById('startstop-video').disabled = false;
         document.getElementById('startstop-video').style.background = "green";
         // Display title and duration
         var videoData = player.getVideoData();
@@ -594,6 +596,9 @@ function playVideoAtRandomStartTime() {
 
 // Assuming you have an element with the ID 'qr-reader' for the QR scanner
 document.getElementById('qr-reader').style.display = 'none'; // Initially hide the QR Scanner
+
+// Initially disable the play button until a song is scanned
+document.getElementById('startstop-video').disabled = true;
 
 document.getElementById('startScanButton').addEventListener('click', function() {
     document.getElementById('cancelScanButton').style.display = 'block';
