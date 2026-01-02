@@ -11,6 +11,8 @@ services:
       - /mnt/user/appdata/songseeker/playlists:/usr/share/nginx/html/playlists:ro
       # Plex configuration (server URL and token)
       - /mnt/user/appdata/songseeker/plex-config.json:/usr/share/nginx/html/plex-config.json:ro
-      # Basic auth password file
+      # Auth credentials (htpasswd format)
       - /mnt/user/appdata/songseeker/.htpasswd:/etc/nginx/.htpasswd:ro
+      # Cookie signing secret (generate with: openssl rand -hex 32 > .cookie_secret)
+      - /mnt/user/appdata/songseeker/.cookie_secret:/etc/nginx/.cookie_secret:ro
     restart: unless-stopped

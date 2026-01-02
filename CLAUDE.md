@@ -29,11 +29,22 @@ docker build -t songseeker -f imagebuild/Dockerfile .
 
 The Docker image uses nginx to serve the app and automatically fetches Hitster playlist CSV files from the [songseeker-hitster-playlists](https://github.com/andygruber/songseeker-hitster-playlists) repository.
 
-### Basic Authentication
+### Authentication
 
-The deployed site uses nginx basic auth. To update credentials:
+The deployed site uses cookie-based authentication with a proper login page (password manager friendly).
+
+**Components:**
+- `login.html` - Login page with form
+- `imagebuild/auth_server.py` - Python auth server that validates credentials and issues session cookies
+- Credentials stored in htpasswd format
+
+**Setup:**
 1. Generate htpasswd: `htpasswd -c .htpasswd username`
-2. Mount the file in docker-compose.yml to `/etc/nginx/.htpasswd`
+2. Generate cookie secret: `openssl rand -hex 32`
+3. Set `COOKIE_SECRET` environment variable in docker-compose
+4. Mount `.htpasswd` file to `/etc/nginx/.htpasswd`
+
+**Session cookies** are valid for 30 days and signed with HMAC-SHA256.
 
 ## Architecture
 
