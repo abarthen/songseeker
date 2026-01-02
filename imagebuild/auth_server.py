@@ -91,8 +91,8 @@ class AuthHandler(BaseHTTPRequestHandler):
     htpasswd = None
 
     def log_message(self, format, *args):
-        """Suppress default logging."""
-        pass
+        """Log requests for debugging."""
+        print(f"[AUTH] {self.command} {self.path} - {args[1] if len(args) > 1 else ''}")
 
     def send_cors_headers(self):
         """Send CORS headers for local development."""
@@ -137,6 +137,7 @@ class AuthHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle login requests."""
         path = urlparse(self.path).path
+        print(f"[AUTH] POST received - raw path: {self.path}, parsed path: {path}")
 
         if path == "/auth/login":
             # Parse form data
