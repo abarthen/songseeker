@@ -136,3 +136,5 @@ tools/plex-mapping-*.csv
 plex-config.json
 
 tools/plex_mapper/__pycache__/
+
+tools/ToDoList.md

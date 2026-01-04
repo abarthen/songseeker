@@ -10,7 +10,7 @@ This project uses a multi-folder workspace with two git repositories:
 
 ## Project Overview
 
-SongSeeker is a music guessing game web application inspired by Hitster and Rockster. Players scan QR codes containing song links, and the app plays the audio via YouTube or Plex while hiding song info for guessing.
+SongSeeker is a music guessing game web application inspired by Hitster and Rockster. Players scan QR codes containing song links, and the app plays the audio via Plex while hiding song info for guessing.
 
 Live demo: https://songseeker.grub3r.io/
 
@@ -27,7 +27,7 @@ This is a static web app with no build system. To develop locally:
 docker build -t songseeker -f imagebuild/Dockerfile .
 ```
 
-The Docker image uses nginx to serve the app and automatically fetches Hitster playlist CSV files from the [songseeker-hitster-playlists](https://github.com/andygruber/songseeker-hitster-playlists) repository.
+The Docker image uses nginx to serve the app. Plex mapping files (`plex-manifest.json`, `plex-mapping-*.json`) and config (`plex-config.json`) are mounted at runtime.
 
 ### Authentication
 
@@ -40,9 +40,9 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 **Setup:**
 1. Generate htpasswd: `htpasswd -c .htpasswd username`
-2. Generate cookie secret: `openssl rand -hex 32`
-3. Set `COOKIE_SECRET` environment variable in docker-compose
-4. Mount `.htpasswd` file to `/etc/nginx/.htpasswd`
+2. Generate cookie secret: `openssl rand -hex 32 > .cookie_secret`
+3. Mount `.htpasswd` file to `/etc/nginx/.htpasswd`
+4. Mount `.cookie_secret` file to `/etc/nginx/.cookie_secret`
 
 **Session cookies** are valid for 30 days and signed with HMAC-SHA256.
 
@@ -51,26 +51,22 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 ### Web Application
 
 **Single-page application** with three main files:
-- `app.js` - All application logic (QR scanning, YouTube/Plex playback, link parsing)
+- `app.js` - All application logic (QR scanning, Plex playback, link parsing)
 - `index.html` - UI structure
 - `style.css` - Styling
 
 **Core functionality in app.js:**
 - QR scanning via [qr-scanner](https://github.com/nimiq/qr-scanner) library (imported from unpkg CDN)
-- YouTube playback via YouTube IFrame API
-- Plex playback via direct audio streaming (requires plex-mapping.json and plex-config.json)
-- Link detection and parsing for three formats:
-  - Direct YouTube links
-  - Hitster links (`hitstergame.com/{lang}/{id}`) - looked up in CSV playlists
-  - Rockster links (`rockster.brettspiel.digital/?yt={id}`)
+- Plex playback via direct audio streaming (requires plex-mapping-{lang}.json and plex-config.json)
+- Hitster link parsing (`hitstergame.com/{lang}/{id}`) - looked up in Plex mapping
 - Random playback mode with configurable duration
 - Cookie-based settings persistence
 
 **Plex Integration:**
 - `plex-config.json` - Plex server URL and token (gitignored, must be created manually)
-- `plex-mapping.json` - Maps Hitster card IDs to Plex track metadata
-- Source indicator shows "Plex" or "YouTube" based on playback source
-- Debug info shows why Plex was/wasn't used for each card
+- `plex-manifest.json` - Lists available mapping files and game edition names
+- `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
+- Debug info shows Plex lookup status for each card
 
 To enable Plex, create `plex-config.json` in the root:
 ```json
@@ -98,9 +94,9 @@ Python tool to generate Plex mappings and download missing songs.
 - Searches Plex library for songs with exact year matching
 - Incremental matching (skips already-matched songs by default, use `--rematch` to re-match all)
 - Generates `plex-mapping-{lang}.json` for the web app
-- Generates `missing-{lang}.csv` with unmatched songs
+- Generates `plex-manifest.json` with available mappings and game edition names
 - Downloads missing songs from YouTube with metadata embedded
-- Plex-friendly folder structure: `artist/song name/song name (year).mp3`
+- Plex-friendly folder structure: `Artist/Singles/Song Title (Year).mp3`
 
 See `tools/README.md` for usage instructions.
 

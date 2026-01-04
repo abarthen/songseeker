@@ -52,6 +52,8 @@ def normalize_for_comparison(text: str) -> str:
     text = text.replace("ó", "o").replace("ò", "o").replace("ô", "o")
     text = text.replace("ú", "u").replace("ù", "u").replace("û", "u")
     text = text.replace("ñ", "n").replace("ß", "ss")
+    # Ligatures
+    text = text.replace("æ", "ae").replace("œ", "oe")
     return text
 
 
@@ -97,6 +99,9 @@ def parse_args():
     )
     parser.add_argument(
         "--rating-key", "-k", help="Manually set Plex ratingKey for --id (skips search, fetches metadata directly)"
+    )
+    parser.add_argument(
+        "--year-tolerance", "-y", type=int, default=0, help="Accept year matches within ± N years (default: 0 = exact match only)"
     )
 
     args = parser.parse_args()
@@ -172,20 +177,24 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
         return None
 
 
-def search_plex(server_url: str, token: str, artist: str, title: str, expected_year: int, debug: bool = False) -> dict | None:
-    """Search Plex library for a track with exact year match."""
-    # Clean up search terms
+def search_plex(server_url: str, token: str, artist: str, title: str, expected_year: int, debug: bool = False, year_tolerance: int = 0) -> dict | None:
+    """Search Plex library for a track with year matching within tolerance."""
+    # Clean up search terms (removes parenthetical content like "feat." or "[Remastered]")
     clean_artist = re.sub(r"feat\..*", "", artist, flags=re.IGNORECASE)
     clean_artist = re.sub(r",.*", "", clean_artist).strip()
     clean_title = re.sub(r"\(.*\)", "", title)
     clean_title = re.sub(r"\[.*\]", "", clean_title).strip()
 
-    # Try different search strategies
+    # Try different search strategies - original title first, then cleaned versions
     search_queries = [
-        clean_title,                          # Title only (most reliable)
-        f"{clean_artist} {clean_title}",      # Full search
-        clean_artist,                         # Artist only
+        title,                                # Original title (preserves parenthetical content)
+        f"{artist} {title}",                  # Full original search
+        clean_title,                          # Cleaned title (fallback)
+        f"{clean_artist} {clean_title}",      # Cleaned full search
+        clean_artist,                         # Artist only (last resort)
     ]
+    # Remove duplicates while preserving order
+    search_queries = list(dict.fromkeys(search_queries))
 
     best_match = None
     best_year_diff = float("inf")
@@ -213,16 +222,23 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                     print(f"  DEBUG: Checking: \"{track.get('title')}\" by \"{track.get('grandparentTitle') or track.get('originalTitle')}\" ({track_year})")
 
                 # Check if this is a reasonable match (using normalized comparison)
+                # Compare against both original and cleaned versions
+                norm_title = normalize_for_comparison(title)
                 norm_clean_title = normalize_for_comparison(clean_title)
                 norm_track_title = normalize_for_comparison(track_title)
+                norm_artist = normalize_for_comparison(artist)
                 norm_clean_artist = normalize_for_comparison(clean_artist)
                 norm_track_artist = normalize_for_comparison(track_artist)
 
                 title_match = (
+                    norm_title in norm_track_title or
+                    norm_track_title in norm_title or
                     norm_clean_title in norm_track_title or
                     norm_track_title in norm_clean_title
                 )
                 artist_match = (
+                    norm_artist in norm_track_artist or
+                    norm_track_artist in norm_artist or
                     norm_clean_artist in norm_track_artist or
                     norm_track_artist in norm_clean_artist
                 )
@@ -247,7 +263,7 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                             "partKey": parts.get("key"),
                         }
 
-                        # If exact year match, we're done
+                        # If exact year match, we're done searching
                         if year_diff == 0:
                             if debug:
                                 print("  DEBUG: Exact year match!")
@@ -258,12 +274,14 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                 print(f"  DEBUG: Search error: {e}")
             continue
 
-    # Only return exact year matches
-    if best_match and best_year_diff == 0:
+    # Return match if within tolerance
+    if best_match and best_year_diff <= year_tolerance:
+        if debug and best_year_diff > 0:
+            print(f"  DEBUG: Accepting match within tolerance (diff: {best_year_diff}, tolerance: {year_tolerance})")
         return best_match
 
     if debug and best_match:
-        print(f"  DEBUG: Rejecting match - year mismatch ({best_match['year']} vs expected {expected_year})")
+        print(f"  DEBUG: Rejecting match - year mismatch ({best_match['year']} vs expected {expected_year}, diff: {best_year_diff}, tolerance: {year_tolerance})")
 
     return None
 
@@ -308,18 +326,29 @@ def load_playlists_csv(playlists_path: Path) -> dict[str, str]:
 
 
 def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
-    """Update plex-manifest.json with list of available mapping files and game info."""
+    """Update plex-manifest.json with list of available mapping files, game info, and match rates."""
     manifest_path = output_dir / "plex-manifest.json"
 
     # Find all plex-mapping-*.json files in the directory
     mapping_files = list(output_dir.glob("plex-mapping-*.json"))
 
-    # Extract language codes from filenames
+    # Extract language codes and calculate match rates
     langs = []
+    match_rates = {}
     for f in mapping_files:
         # plex-mapping-de.json -> de
         lang = f.stem.replace("plex-mapping-", "")
         langs.append(lang)
+
+        # Calculate match rate from mapping file
+        try:
+            with open(f, "r", encoding="utf-8") as mf:
+                mapping = json.load(mf)
+            total = len(mapping)
+            matched = sum(1 for v in mapping.values() if v is not None)
+            match_rates[lang] = round(matched / total * 100, 1) if total > 0 else 0
+        except (json.JSONDecodeError, IOError):
+            match_rates[lang] = 0
 
     langs.sort()
 
@@ -334,7 +363,8 @@ def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
 
     manifest = {
         "mappings": langs,
-        "games": games_for_manifest
+        "games": games_for_manifest,
+        "matchRates": match_rates
     }
 
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -355,8 +385,7 @@ def download_song(url: str, artist: str, title: str, year: str, output_dir: Path
     safe_artist = re.sub(r'[<>:"/\\|?*]', "", artist).strip()
     safe_title = re.sub(r'[<>:"/\\|?*]', "", title).strip()
 
-    # Create Plex-friendly folder structure: artist/album/song
-    # For singles, album = song name
+    # Create Plex-friendly folder structure: artist/album/song (using song title as album for singles)
     song_dir = output_dir / safe_artist / safe_title
 
     # Check if file already exists
@@ -575,7 +604,7 @@ def main():
         except ValueError:
             year_int = 0
 
-        plex_track = search_plex(server_url, args.token, artist, title, year_int, args.debug)
+        plex_track = search_plex(server_url, args.token, artist, title, year_int, args.debug, args.year_tolerance)
 
         if plex_track:
             mapping[card_id] = plex_track

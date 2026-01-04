@@ -11,6 +11,7 @@ let currentStartTime = 0;
 let plexMappingCache = {}; // In-memory cache for Plex mappings
 let plexConfig = { serverUrl: '', token: '' }; // Loaded from plex-config.json
 let plexGames = {}; // Game names from manifest
+let plexMatchRates = {}; // Match rates from manifest
 
 // Function to detect iOS devices
 function isIOS() {
@@ -40,8 +41,10 @@ async function loadPlexMappings() {
             const manifest = await manifestResponse.json();
             availableLangs = manifest.mappings || [];
             plexGames = manifest.games || {};
+            plexMatchRates = manifest.matchRates || {};
             console.log('Loaded manifest:', availableLangs);
             console.log('Loaded games:', plexGames);
+            console.log('Loaded match rates:', plexMatchRates);
         }
     } catch (e) {
         console.log('No manifest found, skipping mapping load');
@@ -159,9 +162,10 @@ async function handleScannedLink(decodedText) {
 
     let plexTrackInfo = null;
     let plexDebugInfo = "";
+    let hitsterData = null;
 
     if (isHitsterLink(decodedText)) {
-        const hitsterData = parseHitsterUrl(decodedText);
+        hitsterData = parseHitsterUrl(decodedText);
         if (hitsterData) {
             console.log("Hitster data:", hitsterData.id, hitsterData.lang);
 
@@ -212,9 +216,19 @@ async function handleScannedLink(decodedText) {
 
         document.getElementById('video-id').textContent = plexTrackInfo.ratingKey;
         document.getElementById('video-title').textContent = `${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
+        document.getElementById('video-title').style.color = '';
 
         currentStartTime = 0;
         await playerManager.cue({ trackInfo: plexTrackInfo });
+    } else if (hitsterData) {
+        // Card was recognized but not matched in Plex
+        const normalizedCardId = String(parseInt(hitsterData.id, 10));
+        document.getElementById('video-id').textContent = '';
+        document.getElementById('video-title').textContent = `Card #${normalizedCardId} not available`;
+        document.getElementById('video-title').style.color = '#cc0000';
+        document.getElementById('video-duration').textContent = '';
+        document.getElementById('startstop-video').disabled = true;
+        document.getElementById('startstop-video').style.background = '';
     }
 }
 
@@ -420,9 +434,13 @@ function updateGameEditionsList() {
         return;
     }
 
-    // Build a simple list of game names
+    // Build a simple list of game names with match rates
     const listHtml = '<ul style="margin: 0.5rem 0; padding-left: 1.5rem; text-align: left;">' +
-        gameEntries.map(([lang, name]) => `<li>${name}</li>`).join('') +
+        gameEntries.map(([lang, name]) => {
+            const rate = plexMatchRates[lang];
+            const rateStr = rate !== undefined ? ` (${rate}%)` : '';
+            return `<li>${name}${rateStr}</li>`;
+        }).join('') +
         '</ul>';
     listEl.innerHTML = listHtml;
 }

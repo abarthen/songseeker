@@ -11,7 +11,7 @@ poetry install
 
 ### Requirements for downloading
 
-- **deno** (JavaScript runtime for yt-dlp): `winget install DenoLand.Deno`
+- **deno** (JavaScript runtime for yt-dlp PO Token handling): `winget install DenoLand.Deno`
 - **ffmpeg** (audio conversion): `winget install ffmpeg`
 
 ## Usage
@@ -62,6 +62,13 @@ poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --id
 
 The `--rating-key` option is useful when Plex search doesn't find a track but you can locate it manually. Get the ratingKey from the Plex URL (e.g., `/library/metadata/98870`) or XML.
 
+### Allow fuzzy year matching
+
+```bash
+# Accept matches within ±2 years (useful for albums with incorrect metadata)
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --year-tolerance 2
+```
+
 ## Command Line Arguments
 
 | Argument | Short | Description |
@@ -79,18 +86,18 @@ The `--rating-key` option is useful when Plex search doesn't find a track but yo
 | `--rematch` | `-R` | Re-match all songs (default: skip already matched) |
 | `--id` | `-i` | Only process a specific card ID (updates existing mapping) |
 | `--rating-key` | `-k` | Manually set Plex ratingKey for `--id` (skips search) |
+| `--year-tolerance` | `-y` | Accept year matches within ± N years (default: 0 = exact) |
 
 ## Output Files
 
 The script generates (overwriting on each run):
 
 1. **`plex-mapping-{lang}.json`** - Mapping file for SongSeeker web app
-2. **`plex-manifest.json`** - Lists available mapping files (auto-generated)
-3. **`missing-{lang}.csv`** - Songs not found in Plex (with YouTube Music URLs)
+2. **`plex-manifest.json`** - Lists available mapping files and game names (auto-generated)
 
 ## Download Folder Structure
 
-Downloaded songs are saved in Plex-friendly format:
+Downloaded songs are saved in Plex-friendly format (song title used as album name):
 
 ```
 downloads/

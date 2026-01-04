@@ -22,5 +22,17 @@
     "de-aaaa0039": "Hitster Deutschland Rock",
     "de-aaaa0040": "Hitster Deutschland Celebration",
     "de-aaaa0042": "Hitster Deutschland Christmas"
+  },
+  "matchRates": {
+    "de-aaaa0007": 100.0,
+    "de-aaaa0012": 92.5,
+    "de-aaaa0015": 3.6,
+    "de-aaaa0019": 100.0,
+    "de-aaaa0025": 95.5,
+    "de-aaaa0026": 97.4,
+    "de-aaaa0039": 94.8,
+    "de-aaaa0040": 92.2,
+    "de-aaaa0042": 93.5,
+    "de": 100.0
   }
 }
