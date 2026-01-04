@@ -90,6 +90,24 @@ function lookupPlexTrack(cardId, lang) {
     return mapping[normalizedId] || null;
 }
 
+function lookupPlexTrackByRatingKey(ratingKey) {
+    // Search all loaded mappings for a track with this ratingKey
+    for (const lang of Object.keys(plexMappingCache)) {
+        const mapping = plexMappingCache[lang];
+        // Check if ratingKey exists as a key in the mapping (custom games use ratingKey as key)
+        if (mapping[ratingKey] && mapping[ratingKey].ratingKey === ratingKey) {
+            return { track: mapping[ratingKey], game: lang };
+        }
+        // Also check all tracks for matching ratingKey (standard Hitster mappings)
+        for (const key of Object.keys(mapping)) {
+            if (mapping[key] && mapping[key].ratingKey === ratingKey) {
+                return { track: mapping[key], game: lang };
+            }
+        }
+    }
+    return null;
+}
+
 function isPlexConfigured() {
     const settings = getPlexSettings();
     return settings.serverUrl && settings.token;
@@ -174,9 +192,16 @@ async function handleScannedLink(decodedText) {
         } else if (!plexConfig.token) {
             plexDebugInfo = "No token in config";
         } else {
-            // Use rating key directly - player will fetch metadata from Plex API
-            plexTrackInfo = { ratingKey: ratingKey };
-            plexDebugInfo = `Direct: plex:${ratingKey}`;
+            // Look up track info from loaded mappings (includes partKey)
+            const result = lookupPlexTrackByRatingKey(ratingKey);
+            if (result) {
+                plexTrackInfo = result.track;
+                plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
+                console.log(`Found in mapping (${result.game}):`, plexTrackInfo.artist, "-", plexTrackInfo.title);
+            } else {
+                plexDebugInfo = `Rating key ${ratingKey} not found in any loaded mapping`;
+                console.log('Rating key not found in any mapping. Is the custom game mapping loaded?');
+            }
         }
     } else if (isHitsterLink(decodedText)) {
         hitsterData = parseHitsterUrl(decodedText);

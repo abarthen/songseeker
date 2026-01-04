@@ -310,6 +310,9 @@ def main():
     # Normalize server URL
     server_url = args.server.rstrip("/")
 
+    # Ensure mapping identifier has "de-" prefix for consistency
+    mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
+
     # Parse rating keys
     keys = parse_keys(args.keys)
     if not keys:
@@ -317,7 +320,7 @@ def main():
         sys.exit(1)
 
     print(f"Creating custom game: {args.name}")
-    print(f"Mapping identifier: {args.mapping}")
+    print(f"Mapping identifier: {mapping_id}")
     print(f"Processing {len(keys)} rating keys...\n")
 
     # Fetch metadata for each key
@@ -346,7 +349,7 @@ def main():
     # Write mapping file
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    mapping_path = output_dir / f"plex-mapping-{args.mapping}.json"
+    mapping_path = output_dir / f"plex-mapping-{mapping_id}.json"
 
     with open(mapping_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
@@ -355,7 +358,7 @@ def main():
 
     # Update manifest
     manifest_path = output_dir / "plex-manifest.json"
-    update_manifest(manifest_path, args.mapping, args.name)
+    update_manifest(manifest_path, mapping_id, args.name)
     print(f"Manifest updated: {manifest_path}")
 
     # Generate cards PDF
