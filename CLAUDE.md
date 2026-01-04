@@ -68,6 +68,7 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 - `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
 - Debug info shows Plex lookup status for each card
 - Unmatched cards show "Card #X not available" feedback to the user
+- Supports direct rating key QR codes (`plex:12345` format) for custom games
 
 To enable Plex, create `plex-config.json` in the root:
 ```json
@@ -101,6 +102,23 @@ Python tool to generate Plex mappings and download missing songs.
 - Artist/title normalization handles accents (ä→a, é→e) and ligatures (æ→ae, œ→oe)
 
 See `tools/README.md` for usage instructions.
+
+### Custom Game Creator (tools/)
+
+Create custom Hitster-style games from Plex rating keys.
+
+**Location:** `tools/plex_mapper/custom_game.py`
+
+**Features:**
+- Input: List of Plex rating keys (comma-separated or from file)
+- Output: Mapping JSON, updated manifest, and printable PDF cards
+- Cards contain QR codes with `plex:{ratingKey}` format
+- Invalid rating keys are skipped with a warning
+
+**Usage:**
+```bash
+poetry run custom-game --name "80s Classics" --mapping "80s-classics" --keys "12345,67890" --cards-pdf cards.pdf
+```
 
 ## Related Repositories
 

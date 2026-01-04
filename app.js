@@ -164,7 +164,21 @@ async function handleScannedLink(decodedText) {
     let plexDebugInfo = "";
     let hitsterData = null;
 
-    if (isHitsterLink(decodedText)) {
+    if (isPlexRatingKey(decodedText)) {
+        // Direct rating key from custom game card (plex:12345)
+        const ratingKey = parsePlexRatingKey(decodedText);
+        console.log("Custom game card, rating key:", ratingKey);
+
+        if (!plexConfig.serverUrl) {
+            plexDebugInfo = "No server URL in config";
+        } else if (!plexConfig.token) {
+            plexDebugInfo = "No token in config";
+        } else {
+            // Use rating key directly - player will fetch metadata from Plex API
+            plexTrackInfo = { ratingKey: ratingKey };
+            plexDebugInfo = `Direct: plex:${ratingKey}`;
+        }
+    } else if (isHitsterLink(decodedText)) {
         hitsterData = parseHitsterUrl(decodedText);
         if (hitsterData) {
             console.log("Hitster data:", hitsterData.id, hitsterData.lang);
@@ -230,6 +244,16 @@ async function handleScannedLink(decodedText) {
         document.getElementById('startstop-video').disabled = true;
         document.getElementById('startstop-video').style.background = '';
     }
+}
+
+function isPlexRatingKey(input) {
+    // Match "plex:12345" format from custom game cards
+    return /^plex:\d+$/.test(input);
+}
+
+function parsePlexRatingKey(input) {
+    const match = input.match(/^plex:(\d+)$/);
+    return match ? match[1] : null;
 }
 
 function isHitsterLink(url) {

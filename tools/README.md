@@ -1,6 +1,11 @@
-# Plex Mapper for SongSeeker
+# SongSeeker Tools
 
-Generate Plex mappings for SongSeeker Hitster cards and download missing songs.
+Tools for generating Plex mappings and custom games for SongSeeker.
+
+## Available Tools
+
+- **plex-mapper** - Generate mappings from Hitster CSV files by searching your Plex library
+- **custom-game** - Create custom games from a list of Plex rating keys with printable cards
 
 ## Setup
 
@@ -132,3 +137,71 @@ The SongSeeker web app needs a `plex-config.json` in the root directory:
 ```
 
 This file is gitignored and must be created manually on the server.
+
+---
+
+# Custom Game Creator
+
+Create your own Hitster-style games with custom song selections from your Plex library.
+
+## Usage
+
+```bash
+# Create custom game from comma-separated rating keys
+poetry run custom-game \
+  --name "80s Classics" \
+  --mapping "80s-classics" \
+  --keys "12345,67890,11111,22222" \
+  --cards-pdf ../cards-80s-classics.pdf
+
+# Create from file (one rating key per line)
+poetry run custom-game \
+  --name "Party Mix" \
+  --mapping "party-mix" \
+  --keys rating-keys.txt \
+  --cards-pdf ../cards-party-mix.pdf
+```
+
+## Finding Rating Keys
+
+Rating keys can be found in several ways:
+
+1. **Plex Web UI**: Open a track, the URL contains `/library/metadata/{ratingKey}`
+2. **Plex API**: Query `/library/sections/{id}/all` and look for `ratingKey` in the XML/JSON
+3. **plex-mapper debug output**: Use `--debug` flag to see rating keys for matched tracks
+
+## Command Line Arguments
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `--name` | `-n` | Game name for display (required) |
+| `--mapping` | `-m` | Mapping identifier, e.g., "80s-classics" (required) |
+| `--keys` | `-k` | Comma-separated keys OR path to file with one key per line (required) |
+| `--cards-pdf` | `-p` | Output PDF path for printable cards (required) |
+| `--output-dir` | `-o` | Directory to save mapping JSON (default: current directory) |
+| `--server` | `-s` | Plex server URL (default: from plex-config.json) |
+| `--token` | `-t` | Plex authentication token (default: from plex-config.json) |
+| `--config` | | Path to plex-config.json (default: ../plex-config.json) |
+| `--icon` | | Path or URL to icon for QR codes (max 300x300px) |
+| `--debug` | `-d` | Enable debug output |
+
+## Output
+
+1. **`plex-mapping-{mapping}.json`** - Mapping file with rating keys as identifiers
+2. **Updated `plex-manifest.json`** - Includes new game with 100% match rate
+3. **`{cards-pdf}`** - Printable PDF with QR codes (front) and song info (back)
+
+## Card Format
+
+Cards contain:
+- **Front**: QR code with `plex:{ratingKey}` data
+- **Back**: Artist name, year (large), and song title
+
+The PDF is laid out for double-sided printing (16 cards per sheet, A4).
+
+## Error Handling
+
+Invalid rating keys (not found in Plex) are:
+- Skipped with a warning message
+- Not included in the mapping or cards
+- Reported in the final summary
