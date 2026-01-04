@@ -93,7 +93,9 @@ poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --ye
 The script generates (overwriting on each run):
 
 1. **`plex-mapping-{lang}.json`** - Mapping file for SongSeeker web app
-2. **`plex-manifest.json`** - Lists available mapping files and game names (auto-generated)
+2. **`plex-manifest.json`** - Lists available mapping files, game names, and match rates (auto-generated)
+
+The manifest includes match rates (percentage of cards matched to Plex tracks) which are displayed on the website next to each game edition.
 
 ## Download Folder Structure
 

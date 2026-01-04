@@ -138,3 +138,5 @@ plex-config.json
 tools/plex_mapper/__pycache__/
 
 tools/ToDoList.md
+
+tools/plex-manifest.json

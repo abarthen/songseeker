@@ -64,9 +64,10 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 **Plex Integration:**
 - `plex-config.json` - Plex server URL and token (gitignored, must be created manually)
-- `plex-manifest.json` - Lists available mapping files and game edition names
+- `plex-manifest.json` - Lists available mapping files, game edition names, and match rates
 - `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
 - Debug info shows Plex lookup status for each card
+- Unmatched cards show "Card #X not available" feedback to the user
 
 To enable Plex, create `plex-config.json` in the root:
 ```json
@@ -91,12 +92,13 @@ Python tool to generate Plex mappings and download missing songs.
 - `pyproject.toml` - Poetry configuration
 
 **Features:**
-- Searches Plex library for songs with exact year matching
+- Searches Plex library for songs with year matching (exact by default, configurable tolerance with `--year-tolerance`)
 - Incremental matching (skips already-matched songs by default, use `--rematch` to re-match all)
 - Generates `plex-mapping-{lang}.json` for the web app
-- Generates `plex-manifest.json` with available mappings and game edition names
+- Generates `plex-manifest.json` with available mappings, game edition names, and match rates
 - Downloads missing songs from YouTube with metadata embedded
-- Plex-friendly folder structure: `Artist/Singles/Song Title (Year).mp3`
+- Plex-friendly folder structure: `Artist/Song Title/Song Title (Year).mp3`
+- Artist/title normalization handles accents (ä→a, é→e) and ligatures (æ→ae, œ→oe)
 
 See `tools/README.md` for usage instructions.
 
