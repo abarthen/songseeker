@@ -220,9 +220,8 @@ def add_qr_code_to_canvas(c: canvas.Canvas, data: str, position: tuple, box_size
         c.drawString(x + box_size - key_width - label_margin, y + label_margin, key_text)
 
 
-def add_text_box(c: canvas.Canvas, track: dict, position: tuple, box_size: float,
-                 game_name: str = None) -> None:
-    """Draw card back with artist, title, year, and corner labels."""
+def add_text_box(c: canvas.Canvas, track: dict, position: tuple, box_size: float) -> None:
+    """Draw card back with artist, title, and year (no corner labels for easier alignment)."""
     x, y = position
     text_indent = 8
 
@@ -237,24 +236,6 @@ def add_text_box(c: canvas.Canvas, track: dict, position: tuple, box_size: float
 
     # Set font color to black
     c.setFillColorRGB(0, 0, 0)
-
-    # Draw corner labels
-    font_label = "Helvetica"
-    font_size_label = 8
-    label_margin = 4
-
-    # Game name in lower left
-    if game_name:
-        c.setFont(font_label, font_size_label)
-        c.drawString(x + label_margin, y + label_margin, game_name)
-
-    # Rating key in lower right
-    rating_key = track.get("ratingKey", "")
-    if rating_key:
-        key_text = str(rating_key)
-        c.setFont(font_label, font_size_label)
-        key_width = c.stringWidth(key_text, font_label, font_size_label)
-        c.drawString(x + box_size - key_width - label_margin, y + label_margin, key_text)
 
     # Draw artist (top, centered)
     artist = track.get("artist", "Unknown Artist")
@@ -340,7 +321,7 @@ def generate_cards_pdf(tracks: list[dict], output_path: str, icon_path: str = No
             x = hpageindent + (column_index * box_size)
             y = page_height - vpageindent - (row_index + 1) * box_size
 
-            add_text_box(c, track, (x, y), box_size, game_name=game_name)
+            add_text_box(c, track, (x, y), box_size)
 
         c.showPage()
 

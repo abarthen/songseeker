@@ -64,7 +64,7 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 **Plex Integration:**
 - `plex-config.json` - Plex server URL and token (gitignored, must be created manually)
-- `plex-manifest.json` - Array of game objects with mapping ID, name, matchRate, minDate, maxDate
+- `plex-manifest.json` - Array of game objects with mapping ID, name, songCount, matchRate, minDate, maxDate
 - `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
 - Debug info shows Plex lookup status for each card
 - Unmatched cards show "Card #X not available" feedback to the user
@@ -100,6 +100,8 @@ Python tool to generate Plex mappings and download missing songs.
 - Downloads missing songs from YouTube with metadata embedded
 - Plex-friendly folder structure: `Artist/Song Title/Song Title (Year).mp3`
 - Artist/title normalization handles accents (ä→a, é→e) and ligatures (æ→ae, œ→oe)
+- Title normalization removes version suffixes like "(Remaster)", "(Extended Version)", etc.
+- Track remapper (`plex-date-remapper.json`) allows overriding year/artist/title for specific tracks
 
 See `tools/README.md` for usage instructions.
 
@@ -119,6 +121,26 @@ Create custom Hitster-style games from Plex rating keys.
 ```bash
 poetry run custom-game --name "80s Classics" --mapping "80s-classics" --keys "12345,67890" --cards-pdf cards.pdf
 ```
+
+### Plex Scan Tool (tools/)
+
+Trigger targeted Plex library scans on specific folders (faster than full library scan).
+
+**Location:** `tools/plex_mapper/plex_scan.py`
+
+**Features:**
+- Scan specific folders instead of entire library
+- Auto-detects library section if only one exists
+- Supports relative paths (converted to absolute using library root)
+- Works with any library type (Music, Movies, etc.)
+
+**Usage:**
+```bash
+poetry run plex-scan -s Music "Unsorted/Artist Name/Album"
+poetry run plex-scan --list-sections
+```
+
+**Note:** The `--force` flag can trigger broader metadata refreshes than intended. Plex's targeted scan API has some quirks - if files aren't being picked up, sometimes a manual scan from the Plex UI works better.
 
 ## Related Repositories
 

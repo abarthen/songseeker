@@ -142,3 +142,7 @@ tools/ToDoList.md
 tools/plex-manifest.json
 
 *.pdf
+
+/tools/*.json
+!/tools/manifest.json
+!/tools/package.json
