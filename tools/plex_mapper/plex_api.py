@@ -24,10 +24,6 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
         return _track_remapper
 
     if remapper_path is None:
-        # Default path: tools/plex-date-remapper.json
-        remapper_path = Path(__file__).parent.parent / "plex-date-remapper.json"
-
-    if not remapper_path.exists():
         _track_remapper_loaded = True
         return _track_remapper
 
@@ -45,6 +41,7 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
             artist_count = sum(1 for e in _track_remapper.values() if "artist" in e)
             year_count = sum(1 for e in _track_remapper.values() if "year" in e)
             title_count = sum(1 for e in _track_remapper.values() if "title" in e)
+            ratingkey_count = sum(1 for e in _track_remapper.values() if "ratingKey" in e)
             parts = []
             if year_count:
                 parts.append(f"{year_count} year")
@@ -52,6 +49,8 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
                 parts.append(f"{artist_count} artist")
             if title_count:
                 parts.append(f"{title_count} title")
+            if ratingkey_count:
+                parts.append(f"{ratingkey_count} ratingKey")
             print(f"Loaded {len(_track_remapper)} track remappings ({', '.join(parts)})")
 
         _track_remapper_loaded = True
@@ -91,6 +90,20 @@ def get_remapped_title(rating_key: str, original_title: str) -> str:
         load_track_remapper()
     entry = _track_remapper.get(str(rating_key))
     return entry.get("title", original_title) if entry else original_title
+
+
+def get_alternative_ratingkey(rating_key: str) -> str | None:
+    """Get alternative ratingKey from remapper's replaceData if one exists.
+
+    Used when a track was replaced in Plex (new ratingKey) but old cards still exist.
+    The alternative key points to the current track in Plex.
+    """
+    if not _track_remapper_loaded:
+        load_track_remapper()
+    entry = _track_remapper.get(str(rating_key))
+    if entry:
+        return entry.get("ratingKey")
+    return None
 
 
 # Patterns to strip from titles (version/format info that doesn't affect song identity)
@@ -155,15 +168,45 @@ def plex_request(url: str, token: str) -> dict:
     return response.json()
 
 
+def extract_guids(track: dict) -> tuple[str | None, str | None]:
+    """Extract Plex GUID and MusicBrainz ID from track metadata.
+
+    Returns (plex_guid, musicbrainz_id) tuple.
+    """
+    # Plex GUID is a top-level attribute (e.g., "plex://track/...")
+    plex_guid = track.get("guid")
+
+    # MusicBrainz ID is in the Guid array (e.g., {"id": "mbid://..."})
+    mbid = None
+    for guid_entry in track.get("Guid", []):
+        guid_id = guid_entry.get("id", "")
+        if guid_id.startswith("mbid://"):
+            mbid = guid_id[7:]  # Strip "mbid://" prefix
+            break
+
+    return plex_guid, mbid
+
+
 def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool = False) -> dict | None:
     """Fetch track metadata directly by ratingKey.
 
+    If the remapper has an alternative ratingKey (replaceData.ratingKey), fetches from that
+    instead but keeps the original ratingKey in the result, adding the alternative to
+    alternativeKeys array. This allows old printed cards to work after tracks are replaced.
+
     Returns dict with track info including 'warnings' list if problematic version detected.
     """
+    # Check if there's an alternative ratingKey in the remapper
+    alternative_key = get_alternative_ratingkey(rating_key)
+    fetch_key = alternative_key if alternative_key else rating_key
+
     try:
-        url = f"{server_url}/library/metadata/{rating_key}"
+        url = f"{server_url}/library/metadata/{fetch_key}"
         if debug:
-            print(f"  DEBUG: Fetching: {url}")
+            if alternative_key:
+                print(f"  DEBUG: Fetching: {url} (alternative for {rating_key})")
+            else:
+                print(f"  DEBUG: Fetching: {url}")
 
         response = plex_request(url, token)
         metadata = response.get("MediaContainer", {}).get("Metadata", [])
@@ -178,6 +221,7 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
         plex_year = track.get("parentYear") or track.get("year")
         plex_artist = track.get("grandparentTitle") or track.get("originalTitle")
         plex_title = track.get("title")
+        # Apply remapper overrides using the ORIGINAL rating_key (not the fetch key)
         remapped_year = get_remapped_year(rating_key, plex_year)
         remapped_artist = get_remapped_artist(rating_key, plex_artist)
         remapped_title = get_remapped_title(rating_key, plex_title)
@@ -188,8 +232,12 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
         # Normalize title (remove version suffixes)
         normalized_title = normalize_title(remapped_title)
 
+        # Extract stable identifiers
+        plex_guid, mbid = extract_guids(track)
+
+        # Keep the ORIGINAL ratingKey (for printed cards), not the fetch key
         result = {
-            "ratingKey": track.get("ratingKey"),
+            "ratingKey": rating_key,
             "title": normalized_title,
             "artist": remapped_artist,
             "album": track.get("parentTitle"),
@@ -197,6 +245,16 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
             "duration": track.get("duration"),
             "partKey": parts.get("key"),
         }
+
+        # Add alternativeKeys if we used a different key to fetch
+        if alternative_key:
+            result["alternativeKeys"] = [alternative_key]
+
+        # Add stable identifiers if available
+        if plex_guid:
+            result["guid"] = plex_guid
+        if mbid:
+            result["mbid"] = mbid
 
         if warnings:
             result["warnings"] = warnings
@@ -214,6 +272,12 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
             elif remapped_title != plex_title:
                 title_info += f" (remapped from {plex_title})"
             print(f"  DEBUG: Found: {artist_info} - {title_info} ({year_info})")
+            if plex_guid:
+                print(f"  DEBUG: GUID: {plex_guid}")
+            if mbid:
+                print(f"  DEBUG: MBID: {mbid}")
+            if alternative_key:
+                print(f"  DEBUG: Alternative key: {alternative_key}")
 
         return result
 

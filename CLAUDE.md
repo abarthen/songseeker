@@ -101,7 +101,7 @@ Python tool to generate Plex mappings and download missing songs.
 - Plex-friendly folder structure: `Artist/Song Title/Song Title (Year).mp3`
 - Artist/title normalization handles accents (ä→a, é→e) and ligatures (æ→ae, œ→oe)
 - Title normalization removes version suffixes like "(Remaster)", "(Extended Version)", etc.
-- Track remapper (`plex-date-remapper.json`) allows overriding year/artist/title for specific tracks
+- Track remapper (`plex-remapper.json`) allows overriding year/artist/title for specific tracks
 
 See `tools/README.md` for usage instructions.
 

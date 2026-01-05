@@ -123,6 +123,15 @@ function lookupPlexTrackByRatingKey(ratingKey) {
                 return { track: mapping[key], game: lang };
             }
         }
+        // Check alternativeKeys for tracks that were replaced in Plex
+        // (old ratingKey on printed card, new ratingKey in mapping)
+        for (const key of Object.keys(mapping)) {
+            const track = mapping[key];
+            if (track && track.alternativeKeys && track.alternativeKeys.includes(ratingKey)) {
+                console.log(`Found via alternativeKeys: ${ratingKey} -> ${track.ratingKey}`);
+                return { track: track, game: lang };
+            }
+        }
     }
     return null;
 }

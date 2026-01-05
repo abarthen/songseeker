@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 import requests
 
-from .plex_api import load_plex_config, plex_request, fetch_plex_track, get_remapped_year, get_remapped_artist, get_remapped_title
+from .plex_api import load_plex_config, plex_request, fetch_plex_track, get_remapped_year, get_remapped_artist, get_remapped_title, extract_guids, load_track_remapper
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -97,6 +97,15 @@ def parse_args():
     )
     parser.add_argument(
         "--fix", "-F", action="store_true", help="With --check: remove missing tracks from mapping so they can be re-matched"
+    )
+    parser.add_argument(
+        "--enrich", "-E", action="store_true", help="Re-fetch metadata for existing mappings (updates guid/mbid, applies remapper)"
+    )
+    parser.add_argument(
+        "--remapper", required=True, help="Path to plex-remapper.json (for metadata overrides)"
+    )
+    parser.add_argument(
+        "--manifest", help="Path to plex-manifest.json (default: same directory as output)"
     )
 
     args = parser.parse_args()
@@ -218,6 +227,10 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                             print(f"  DEBUG: Artist remapped from {plex_artist} to {remapped_artist}")
                         if debug and remapped_title != plex_title:
                             print(f"  DEBUG: Title remapped from {plex_title} to {remapped_title}")
+
+                        # Extract stable identifiers (guid, mbid)
+                        plex_guid, mbid = extract_guids(track)
+
                         best_match = {
                             "ratingKey": rating_key,
                             "title": remapped_title,
@@ -228,10 +241,20 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                             "partKey": parts.get("key"),
                         }
 
+                        # Add stable identifiers if available
+                        if plex_guid:
+                            best_match["guid"] = plex_guid
+                        if mbid:
+                            best_match["mbid"] = mbid
+
                         # If exact year match, we're done searching
                         if year_diff == 0:
                             if debug:
                                 print("  DEBUG: Exact year match!")
+                                if plex_guid:
+                                    print(f"  DEBUG: GUID: {plex_guid}")
+                                if mbid:
+                                    print(f"  DEBUG: MBID: {mbid}")
                             return best_match
 
         except Exception as e:
@@ -243,6 +266,10 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
     if best_match and best_year_diff <= year_tolerance:
         if debug and best_year_diff > 0:
             print(f"  DEBUG: Accepting match within tolerance (diff: {best_year_diff}, tolerance: {year_tolerance})")
+            if best_match.get("guid"):
+                print(f"  DEBUG: GUID: {best_match['guid']}")
+            if best_match.get("mbid"):
+                print(f"  DEBUG: MBID: {best_match['mbid']}")
         return best_match
 
     if debug and best_match:
@@ -290,12 +317,14 @@ def load_playlists_csv(playlists_path: Path) -> dict[str, str]:
     return games
 
 
-def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
+def update_manifest(output_dir: Path, playlists_dir: Path = None, manifest_path: Path = None) -> None:
     """Update plex-manifest.json with list of game objects including date ranges."""
-    manifest_path = output_dir / "plex-manifest.json"
+    if manifest_path is None:
+        manifest_path = output_dir / "plex-manifest.json"
 
-    # Find all plex-mapping-*.json files in the directory
-    mapping_files = list(output_dir.glob("plex-mapping-*.json"))
+    # Find all plex-mapping-*.json files in the manifest's directory (or output_dir)
+    scan_dir = manifest_path.parent if manifest_path else output_dir
+    mapping_files = list(scan_dir.glob("plex-mapping-*.json"))
 
     # Load existing manifest to preserve custom game names
     existing_names = {}
@@ -528,8 +557,88 @@ def check_mapping(server_url: str, token: str, mapping_path: Path, debug: bool =
     print("=" * 50)
 
 
+def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False) -> None:
+    """Re-fetch metadata for all tracks in a mapping file using their existing ratingKey."""
+    if not mapping_path.exists():
+        print(f"Error: Mapping file not found: {mapping_path}")
+        sys.exit(1)
+
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        mapping = json.load(f)
+
+    # Get all entries with rating keys
+    entries_with_keys = [(card_id, entry) for card_id, entry in mapping.items()
+                         if entry is not None and entry.get("ratingKey")]
+
+    print(f"Enriching {len(entries_with_keys)} tracks in {mapping_path.name}...\n")
+
+    enriched = 0
+    missing = 0
+    unchanged = 0
+
+    for i, (card_id, entry) in enumerate(entries_with_keys):
+        rating_key = entry.get("ratingKey")
+        old_artist = entry.get("artist", "Unknown")
+        old_title = entry.get("title", "Unknown")
+
+        if debug:
+            print(f"[{i + 1}/{len(entries_with_keys)}] Fetching {rating_key}: {old_artist} - {old_title}... ", end="", flush=True)
+
+        new_track = fetch_plex_track(server_url, token, rating_key, debug=False)
+
+        if new_track:
+            # Check what changed
+            changes = []
+            if new_track.get("guid") and not entry.get("guid"):
+                changes.append("guid")
+            if new_track.get("mbid") and not entry.get("mbid"):
+                changes.append("mbid")
+            if new_track.get("year") != entry.get("year"):
+                changes.append(f"year:{entry.get('year')}->{new_track.get('year')}")
+            if new_track.get("artist") != entry.get("artist"):
+                changes.append(f"artist")
+            if new_track.get("title") != entry.get("title"):
+                changes.append(f"title")
+
+            mapping[card_id] = new_track
+
+            if changes:
+                enriched += 1
+                if debug:
+                    print(f"UPDATED ({', '.join(changes)})")
+                elif not debug:
+                    print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: UPDATED ({', '.join(changes)})")
+            else:
+                unchanged += 1
+                if debug:
+                    print("unchanged")
+        else:
+            missing += 1
+            if debug:
+                print("MISSING")
+            else:
+                print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: MISSING (ratingKey: {rating_key})")
+
+    # Write updated mapping
+    with open(mapping_path, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, indent=2)
+
+    # Summary
+    print(f"\n{'=' * 50}")
+    print(f"Enrich complete: {len(entries_with_keys)} tracks processed")
+    print(f"  Updated:   {enriched}")
+    print(f"  Unchanged: {unchanged}")
+    print(f"  Missing:   {missing}")
+    print(f"\nMapping saved to: {mapping_path}")
+    print("=" * 50)
+
+
 def main():
     args = parse_args()
+
+    # Load track remapper (for year/artist/title overrides)
+    remapper_path = Path(args.remapper) if args.remapper else None
+    load_track_remapper(remapper_path)
 
     # Normalize server URL
     server_url = args.server.rstrip("/")
@@ -560,6 +669,24 @@ def main():
             sys.exit(1)
 
         check_mapping(server_url, args.token, output_path, args.debug, args.fix)
+        sys.exit(0)
+
+    # Handle --enrich mode
+    if args.enrich:
+        print(f"Testing Plex connection: {server_url}")
+        try:
+            server_info = plex_request(f"{server_url}/", args.token)
+            container = server_info.get("MediaContainer", {})
+            print(f"Connected to: {container.get('friendlyName', 'Unknown')}\n")
+        except Exception as e:
+            print(f"Error: Cannot connect to Plex server: {e}")
+            sys.exit(1)
+
+        enrich_mapping(server_url, args.token, output_path, args.debug)
+
+        # Update manifest after enriching
+        manifest_path = Path(args.manifest) if args.manifest else None
+        update_manifest(output_path.parent, csv_path.parent, manifest_path)
         sys.exit(0)
 
     print(f"Reading CSV: {csv_path}")
@@ -703,7 +830,8 @@ def main():
         json.dump(mapping, f, indent=2)
 
     # Update manifest.json to list available mappings (pass CSV dir for playlists.csv)
-    update_manifest(output_path.parent, csv_path.parent)
+    manifest_path = Path(args.manifest) if args.manifest else None
+    update_manifest(output_path.parent, csv_path.parent, manifest_path)
 
     # Download missing songs if requested
     if args.download and missing_songs:

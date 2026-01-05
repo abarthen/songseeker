@@ -385,7 +385,7 @@ def parse_args():
     )
     input_group.add_argument(
         "--apply", "-a",
-        help="Apply report to plex-date-remapper.json (updates year in replaceData)"
+        help="Apply report to plex-remapper.json (updates year in replaceData)"
     )
     parser.add_argument(
         "--tolerance", "-t", type=int, default=0,
@@ -406,6 +406,10 @@ def parse_args():
     parser.add_argument(
         "--filter", "-f",
         help="Only check tracks where artist or title contains this string (case-insensitive)"
+    )
+    parser.add_argument(
+        "--remapper",
+        help="Path to plex-remapper.json (required with --apply)"
     )
     return parser.parse_args()
 
@@ -429,12 +433,13 @@ def load_tracks_from_report(report_path: Path) -> dict:
     return mapping
 
 
-def apply_report_to_remapper(report_path: Path, debug: bool = False) -> None:
+def apply_report_to_remapper(report_path: Path, remapper_path: Path = None, debug: bool = False) -> None:
     """
-    Apply year corrections from a report to plex-date-remapper.json.
+    Apply year corrections from a report to plex-remapper.json.
     Creates or updates entries based on ratingKey.
     """
-    remapper_path = report_path.parent / "plex-date-remapper.json"
+    if remapper_path is None:
+        remapper_path = report_path.parent / "plex-remapper.json"
 
     # Load report
     with open(report_path, "r", encoding="utf-8") as f:
@@ -518,11 +523,15 @@ def main():
 
     # Handle --apply mode separately
     if args.apply:
+        if not args.remapper:
+            print("Error: --remapper is required with --apply", file=sys.stderr)
+            sys.exit(1)
         apply_path = Path(args.apply)
         if not apply_path.exists():
             print(f"Error: Report file not found: {apply_path}", file=sys.stderr)
             sys.exit(1)
-        apply_report_to_remapper(apply_path, debug=args.debug)
+        remapper_path = Path(args.remapper)
+        apply_report_to_remapper(apply_path, remapper_path=remapper_path, debug=args.debug)
         sys.exit(0)
 
     # Load tracks from either mapping or previous report

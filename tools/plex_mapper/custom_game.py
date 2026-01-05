@@ -53,7 +53,10 @@ def parse_args():
         "--list-playlists", "-L", action="store_true", help="List available Plex playlists and exit"
     )
     parser.add_argument(
-        "--output-dir", "-o", default=".", help="Directory to save mapping JSON (default: current directory)"
+        "--output", "-o", help="Full output path for mapping JSON (overrides --output-dir)"
+    )
+    parser.add_argument(
+        "--output-dir", default=".", help="Directory to save mapping JSON (default: current directory)"
     )
     parser.add_argument(
         "--cards-pdf", "-p", help="Output PDF path for generated cards"
@@ -72,6 +75,12 @@ def parse_args():
     )
     parser.add_argument(
         "--debug", "-d", action="store_true", help="Enable debug output"
+    )
+    parser.add_argument(
+        "--remapper", required=True, help="Path to plex-remapper.json (for metadata overrides)"
+    )
+    parser.add_argument(
+        "--manifest", help="Path to plex-manifest.json (default: same directory as output)"
     )
 
     args = parser.parse_args()
@@ -332,7 +341,8 @@ def main():
     args = parse_args()
 
     # Load date remapper (for overriding years from best-of albums etc.)
-    load_date_remapper()
+    remapper_path = Path(args.remapper) if args.remapper else None
+    load_date_remapper(remapper_path)
 
     # Normalize server URL
     server_url = args.server.rstrip("/")
@@ -355,6 +365,7 @@ def main():
     existing_mapping = {}
     existing_tracks = []
     extend_mode = False
+    mapping_path_override = None
 
     if args.extend:
         extend_mode = True
@@ -399,13 +410,32 @@ def main():
         if not args.name:
             print("Error: --name is required")
             sys.exit(1)
-        if not args.mapping:
-            print("Error: --mapping is required")
-            sys.exit(1)
 
         game_name = args.name
-        mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
-        output_dir = Path(args.output_dir)
+
+        # Determine output path and mapping_id
+        if args.output:
+            # Full path provided - extract mapping_id from filename
+            output_path = Path(args.output)
+            output_dir = output_path.parent
+            filename = output_path.name
+            if filename.startswith("plex-mapping-") and filename.endswith(".json"):
+                mapping_id = filename[len("plex-mapping-"):-len(".json")]
+            elif filename.endswith(".json"):
+                # Use filename without .json as mapping_id
+                mapping_id = filename[:-len(".json")]
+            else:
+                mapping_id = filename
+            # Will use output_path directly instead of constructing from output_dir
+            mapping_path_override = output_path
+        else:
+            # Need --mapping when not using --output
+            if not args.mapping:
+                print("Error: --mapping is required (or use --output for full path)")
+                sys.exit(1)
+            mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
+            output_dir = Path(args.output_dir)
+            mapping_path_override = None
 
     if not args.cards_pdf:
         print("Error: --cards-pdf is required")
@@ -493,7 +523,12 @@ def main():
 
     # Write mapping file
     output_dir.mkdir(parents=True, exist_ok=True)
-    mapping_path = output_dir / f"plex-mapping-{mapping_id}.json"
+    if extend_mode:
+        mapping_path = extend_path
+    elif mapping_path_override:
+        mapping_path = mapping_path_override
+    else:
+        mapping_path = output_dir / f"plex-mapping-{mapping_id}.json"
 
     with open(mapping_path, "w", encoding="utf-8") as f:
         json.dump(final_mapping, f, indent=2)
@@ -501,7 +536,7 @@ def main():
     print(f"\nMapping saved to: {mapping_path}")
 
     # Update manifest
-    manifest_path = output_dir / "plex-manifest.json"
+    manifest_path = Path(args.manifest) if args.manifest else output_dir / "plex-manifest.json"
     update_manifest(manifest_path, mapping_id, game_name, all_tracks)
     print(f"Manifest updated: {manifest_path}")
 

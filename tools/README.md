@@ -88,6 +88,18 @@ poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --ch
 poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --check --fix
 ```
 
+### Enrich existing mapping
+
+Re-fetch metadata for all tracks using their existing ratingKey. Useful for:
+- Adding guid/mbid to existing mappings (for future-proofing)
+- Applying track remapper changes without re-matching
+- Updating metadata after changes in Plex
+
+```bash
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --enrich
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --enrich --debug
+```
+
 ## Command Line Arguments
 
 | Argument | Short | Description |
@@ -108,6 +120,9 @@ poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --ch
 | `--year-tolerance` | `-y` | Accept year matches within ± N years (default: 0 = exact) |
 | `--check` | `-C` | Check that all rating keys in existing mapping still exist in Plex |
 | `--fix` | `-F` | With --check: remove missing tracks from mapping so they can be re-matched |
+| `--enrich` | `-E` | Re-fetch metadata for existing mappings (updates guid/mbid, applies remapper) |
+| `--remapper` | | Path to plex-remapper.json (required) |
+| `--manifest` | | Path to plex-manifest.json (default: same directory as output) |
 
 ## Output Files
 
@@ -172,7 +187,7 @@ This file is gitignored and must be created manually on the server.
 
 ## Track Remapper
 
-Some songs in Plex may have incorrect years (e.g., from best-of/compilation albums) or wrong artist/title (e.g., compilation albums). You can override metadata for specific tracks using `plex-date-remapper.json`:
+Some songs in Plex may have incorrect years (e.g., from best-of/compilation albums) or wrong artist/title (e.g., compilation albums). You can override metadata for specific tracks using `plex-remapper.json`:
 
 ```json
 [
@@ -202,16 +217,45 @@ Some songs in Plex may have incorrect years (e.g., from best-of/compilation albu
 
 **Format:**
 - JSON array of track override objects
-- `ratingKey`: The Plex rating key to override
+- `ratingKey`: The Plex rating key to override (the one in printed cards/existing mappings)
 - `metadata`: For your reference only (ignored by the script) - put artist/title here for easy lookup
 - `replaceData`: Contains values to override. Any combination of:
   - `year`: Replace the year from Plex
   - `artist`: Replace the artist from Plex
   - `title`: Replace the title from Plex
+  - `ratingKey`: Alternative ratingKey to use for fetching (see below)
 
-**Location:** `tools/plex-date-remapper.json` (automatically loaded by both plex-mapper and custom-game)
+**Location:** Specify with `--remapper` parameter (required for plex-mapper and custom-game).
 
 Only properties present in `replaceData` are overridden - omit properties you don't want to change.
+
+### Alternative Rating Keys (Avoiding Reprints)
+
+If you replace a track in Plex (e.g., re-download with better quality), the ratingKey changes. This would break cards already printed with the old ratingKey.
+
+To avoid reprinting, add the NEW ratingKey to `replaceData`:
+
+```json
+{
+    "ratingKey": "12345",
+    "metadata": {
+        "artist": "Queen",
+        "title": "We Will Rock You"
+    },
+    "replaceData": {
+        "ratingKey": "67890"
+    }
+}
+```
+
+This tells the tools: "Card 12345 should use track 67890 from Plex."
+
+When you run `--enrich`, the mapping will be updated with:
+- `ratingKey`: 12345 (the original, matching printed cards)
+- `alternativeKeys`: ["67890"] (the current track in Plex)
+- Metadata fetched from track 67890
+
+The website will try `ratingKey` first, then fall back to `alternativeKeys` if the primary key fails. This keeps old cards working while allowing track replacements.
 
 Debug output shows `(remapped from XXXX)` when values are overridden.
 
@@ -311,17 +355,20 @@ Rating keys can be found in several ways:
 | Argument | Short | Description |
 |----------|-------|-------------|
 | `--name` | `-n` | Game name for display (required for new games) |
-| `--mapping` | `-m` | Mapping identifier, e.g., "80s-classics" (required for new games) |
+| `--mapping` | `-m` | Mapping identifier, e.g., "80s-classics" (required unless using --output) |
 | `--extend` | `-e` | Path to existing mapping JSON to extend (skips existing songs) |
 | `--keys` | `-k` | Comma-separated keys OR path to file with one key per line |
 | `--playlist` | `-P` | Plex playlist name or ratingKey to use as source |
 | `--list-playlists` | `-L` | List available Plex playlists and exit |
 | `--cards-pdf` | `-p` | Output PDF path for printable cards (required) |
-| `--output-dir` | `-o` | Directory to save mapping JSON (default: current directory) |
+| `--output` | `-o` | Full output path for mapping JSON (overrides --output-dir) |
+| `--output-dir` | | Directory to save mapping JSON (default: current directory) |
 | `--server` | `-s` | Plex server URL (default: from plex-config.json) |
 | `--token` | `-t` | Plex authentication token (default: from plex-config.json) |
 | `--config` | | Path to plex-config.json (default: ../plex-config.json) |
 | `--icon` | | Path or URL to icon for QR codes (max 300x300px) |
+| `--remapper` | | Path to plex-remapper.json (required) |
+| `--manifest` | | Path to plex-manifest.json (default: same directory as output) |
 | `--debug` | `-d` | Enable debug output |
 
 **Note:** Either `--keys` or `--playlist` is required. Use `--extend` OR `--name`/`--mapping`.
@@ -414,7 +461,7 @@ poetry run validate-years --mapping ../plex-mapping-de-at-2026.json --filter "Wh
 # Test with limited tracks
 poetry run validate-years --mapping ../plex-mapping-de-at-2026.json --limit 10 --debug
 
-# Apply report findings to plex-date-remapper.json
+# Apply report findings to plex-remapper.json
 poetry run validate-years --apply report.json --debug
 ```
 
@@ -424,11 +471,12 @@ poetry run validate-years --apply report.json --debug
 |----------|-------|-------------|
 | `--mapping` | `-m` | Path to plex-mapping-*.json file (initial full scan) |
 | `--report` | `-r` | Path to previous report.json (re-check only flagged tracks, auto-saves back) |
-| `--apply` | `-a` | Apply report to plex-date-remapper.json (adds/updates year in replaceData) |
+| `--apply` | `-a` | Apply report to plex-remapper.json (adds/updates year in replaceData) |
 | `--tolerance` | `-t` | Allowed year difference (default: 0 = exact match) |
 | `--limit` | `-l` | Limit number of tracks to check (for testing) |
 | `--output` | `-o` | Output JSON file for discrepancy report |
 | `--filter` | `-f` | Only check tracks where artist or title contains this string |
+| `--remapper` | | Path to plex-remapper.json (required with --apply) |
 | `--debug` | `-d` | Show detailed progress for each track |
 
 **Note:** One of `--mapping`, `--report`, or `--apply` is required (mutually exclusive).
@@ -480,4 +528,4 @@ When using `--output`, discrepancies are saved as:
 For tracks with incorrect years, you have two options:
 
 1. **Fix in Plex**: Edit the track/album metadata directly
-2. **Use the remapper**: Add entries to `plex-date-remapper.json` (see Track Remapper section above)
+2. **Use the remapper**: Add entries to `plex-remapper.json` (see Track Remapper section above)
