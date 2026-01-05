@@ -74,6 +74,18 @@ The `--rating-key` option is useful when Plex search doesn't find a track but yo
 poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --year-tolerance 2
 ```
 
+### Check existing mapping
+
+Verify that all rating keys in an existing mapping still exist in Plex (useful after reorganizing your library):
+
+```bash
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --check
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --check --debug
+
+# Check and remove missing tracks (so next run will re-match them)
+poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --check --fix
+```
+
 ## Command Line Arguments
 
 | Argument | Short | Description |
@@ -92,15 +104,32 @@ poetry run plex-mapper --csv ../songseeker-hitster-playlists/hitster-de.csv --ye
 | `--id` | `-i` | Only process a specific card ID (updates existing mapping) |
 | `--rating-key` | `-k` | Manually set Plex ratingKey for `--id` (skips search) |
 | `--year-tolerance` | `-y` | Accept year matches within ± N years (default: 0 = exact) |
+| `--check` | `-C` | Check that all rating keys in existing mapping still exist in Plex |
+| `--fix` | `-F` | With --check: remove missing tracks from mapping so they can be re-matched |
 
 ## Output Files
 
 The script generates (overwriting on each run):
 
 1. **`plex-mapping-{lang}.json`** - Mapping file for SongSeeker web app
-2. **`plex-manifest.json`** - Lists available mapping files, game names, and match rates (auto-generated)
+2. **`plex-manifest.json`** - Array of game objects (auto-generated)
 
-The manifest includes match rates (percentage of cards matched to Plex tracks) which are displayed on the website next to each game edition.
+The manifest uses this format:
+```json
+{
+  "games": [
+    {
+      "mapping": "de",
+      "name": "Hitster Deutschland",
+      "matchRate": 100.0,
+      "minDate": 1965,
+      "maxDate": 2024
+    }
+  ]
+}
+```
+
+Each game object contains: mapping ID, display name, match rate (%), and year range. The website displays all these fields for each game edition.
 
 ## Download Folder Structure
 
@@ -138,6 +167,51 @@ The SongSeeker web app needs a `plex-config.json` in the root directory:
 
 This file is gitignored and must be created manually on the server.
 
+## Track Remapper
+
+Some songs in Plex may have incorrect years (e.g., from best-of/compilation albums) or wrong artist/title (e.g., compilation albums). You can override metadata for specific tracks using `plex-date-remapper.json`:
+
+```json
+[
+    {
+        "ratingKey": "85677",
+        "metadata": {
+            "artist": "Whitesnake",
+            "title": "Here I Go Again"
+        },
+        "replaceData": {
+            "year": 1982
+        }
+    },
+    {
+        "ratingKey": "70022",
+        "metadata": {
+            "artist": "Emiliana Torrini",
+            "title": "White Rabbit"
+        },
+        "replaceData": {
+            "year": 2011,
+            "artist": "Emiliana Torrini"
+        }
+    }
+]
+```
+
+**Format:**
+- JSON array of track override objects
+- `ratingKey`: The Plex rating key to override
+- `metadata`: For your reference only (ignored by the script) - put artist/title here for easy lookup
+- `replaceData`: Contains values to override. Any combination of:
+  - `year`: Replace the year from Plex
+  - `artist`: Replace the artist from Plex
+  - `title`: Replace the title from Plex
+
+**Location:** `tools/plex-date-remapper.json` (automatically loaded by both plex-mapper and custom-game)
+
+Only properties present in `replaceData` are overridden - omit properties you don't want to change.
+
+Debug output shows `(remapped from XXXX)` when values are overridden.
+
 ---
 
 # Custom Game Creator
@@ -145,6 +219,41 @@ This file is gitignored and must be created manually on the server.
 Create your own Hitster-style games with custom song selections from your Plex library.
 
 ## Usage
+
+### From a Plex Playlist (recommended)
+
+The easiest way to create a custom game is to curate a playlist in Plex, then use it directly:
+
+```bash
+# List available playlists
+poetry run custom-game --list-playlists
+
+# Create game from a playlist (by name or ratingKey)
+poetry run custom-game \
+  --name "80s Classics" \
+  --mapping "80s-classics" \
+  --playlist "My 80s Playlist" \
+  --cards-pdf ../cards-80s-classics.pdf
+```
+
+### Extend an Existing Game
+
+Add new songs from a playlist to an existing game. Songs already in the mapping are skipped:
+
+```bash
+# Extend existing game with new songs from playlist
+poetry run custom-game \
+  --extend plex-mapping-de-80s-classics.json \
+  --playlist "My 80s Playlist" \
+  --cards-pdf ../cards-80s-classics.pdf
+```
+
+This generates:
+- Updated `plex-mapping-de-80s-classics.json` with all songs
+- `cards-80s-classics-full.pdf` - all cards (existing + new)
+- `cards-80s-classics-new.pdf` - only new cards to print
+
+### From Rating Keys
 
 ```bash
 # Create custom game from comma-separated rating keys
@@ -166,17 +275,21 @@ poetry run custom-game \
 
 Rating keys can be found in several ways:
 
-1. **Plex Web UI**: Open a track, the URL contains `/library/metadata/{ratingKey}`
-2. **Plex API**: Query `/library/sections/{id}/all` and look for `ratingKey` in the XML/JSON
-3. **plex-mapper debug output**: Use `--debug` flag to see rating keys for matched tracks
+1. **Plex Playlist**: Create a playlist in Plex, then use `--playlist` option
+2. **Plex Web UI**: Open a track, the URL contains `/library/metadata/{ratingKey}`
+3. **Plex API**: Query `/library/sections/{id}/all` and look for `ratingKey` in the XML/JSON
+4. **plex-mapper debug output**: Use `--debug` flag to see rating keys for matched tracks
 
 ## Command Line Arguments
 
 | Argument | Short | Description |
 |----------|-------|-------------|
-| `--name` | `-n` | Game name for display (required) |
-| `--mapping` | `-m` | Mapping identifier, e.g., "80s-classics" (required) |
-| `--keys` | `-k` | Comma-separated keys OR path to file with one key per line (required) |
+| `--name` | `-n` | Game name for display (required for new games) |
+| `--mapping` | `-m` | Mapping identifier, e.g., "80s-classics" (required for new games) |
+| `--extend` | `-e` | Path to existing mapping JSON to extend (skips existing songs) |
+| `--keys` | `-k` | Comma-separated keys OR path to file with one key per line |
+| `--playlist` | `-P` | Plex playlist name or ratingKey to use as source |
+| `--list-playlists` | `-L` | List available Plex playlists and exit |
 | `--cards-pdf` | `-p` | Output PDF path for printable cards (required) |
 | `--output-dir` | `-o` | Directory to save mapping JSON (default: current directory) |
 | `--server` | `-s` | Plex server URL (default: from plex-config.json) |
@@ -184,6 +297,8 @@ Rating keys can be found in several ways:
 | `--config` | | Path to plex-config.json (default: ../plex-config.json) |
 | `--icon` | | Path or URL to icon for QR codes (max 300x300px) |
 | `--debug` | `-d` | Enable debug output |
+
+**Note:** Either `--keys` or `--playlist` is required. Use `--extend` OR `--name`/`--mapping`.
 
 ## Output
 

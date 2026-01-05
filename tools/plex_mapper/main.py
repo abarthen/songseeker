@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 import requests
 
-from .plex_api import load_plex_config, plex_request, fetch_plex_track
+from .plex_api import load_plex_config, plex_request, fetch_plex_track, get_remapped_year, get_remapped_artist, get_remapped_title
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -92,12 +92,23 @@ def parse_args():
     parser.add_argument(
         "--year-tolerance", "-y", type=int, default=0, help="Accept year matches within ± N years (default: 0 = exact match only)"
     )
+    parser.add_argument(
+        "--check", "-C", action="store_true", help="Check that all rating keys in existing mapping still exist in Plex"
+    )
+    parser.add_argument(
+        "--fix", "-F", action="store_true", help="With --check: remove missing tracks from mapping so they can be re-matched"
+    )
 
     args = parser.parse_args()
 
     # Validate --rating-key requires --id
     if args.rating_key and not args.id:
         print("Error: --rating-key requires --id to specify which card to update")
+        sys.exit(1)
+
+    # Validate --fix requires --check
+    if args.fix and not args.check:
+        print("Error: --fix requires --check")
         sys.exit(1)
 
     # Load config file if server/token not provided
@@ -195,12 +206,24 @@ def search_plex(server_url: str, token: str, artist: str, title: str, expected_y
                         best_year_diff = year_diff
                         media = track.get("Media", [{}])[0]
                         parts = media.get("Part", [{}])[0]
+                        rating_key = track.get("ratingKey")
+                        plex_artist = track.get("grandparentTitle") or track.get("originalTitle")
+                        plex_title = track.get("title")
+                        remapped_year = get_remapped_year(rating_key, track_year)
+                        remapped_artist = get_remapped_artist(rating_key, plex_artist)
+                        remapped_title = get_remapped_title(rating_key, plex_title)
+                        if debug and remapped_year != track_year:
+                            print(f"  DEBUG: Year remapped from {track_year} to {remapped_year}")
+                        if debug and remapped_artist != plex_artist:
+                            print(f"  DEBUG: Artist remapped from {plex_artist} to {remapped_artist}")
+                        if debug and remapped_title != plex_title:
+                            print(f"  DEBUG: Title remapped from {plex_title} to {remapped_title}")
                         best_match = {
-                            "ratingKey": track.get("ratingKey"),
-                            "title": track.get("title"),
-                            "artist": track.get("grandparentTitle") or track.get("originalTitle"),
+                            "ratingKey": rating_key,
+                            "title": remapped_title,
+                            "artist": remapped_artist,
                             "album": track.get("parentTitle"),
-                            "year": track_year,
+                            "year": remapped_year,
                             "duration": track.get("duration"),
                             "partKey": parts.get("key"),
                         }
@@ -268,51 +291,62 @@ def load_playlists_csv(playlists_path: Path) -> dict[str, str]:
 
 
 def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
-    """Update plex-manifest.json with list of available mapping files, game info, and match rates."""
+    """Update plex-manifest.json with list of game objects including date ranges."""
     manifest_path = output_dir / "plex-manifest.json"
 
     # Find all plex-mapping-*.json files in the directory
     mapping_files = list(output_dir.glob("plex-mapping-*.json"))
 
-    # Extract language codes and calculate match rates
-    langs = []
-    match_rates = {}
+    # Load game names from playlists.csv if available
+    game_names = {}
+    if playlists_dir:
+        playlists_path = playlists_dir / "playlists.csv"
+        game_names = load_playlists_csv(playlists_path)
+
+    # Build list of game objects
+    games_list = []
     for f in mapping_files:
         # plex-mapping-de.json -> de
-        lang = f.stem.replace("plex-mapping-", "")
-        langs.append(lang)
+        mapping_id = f.stem.replace("plex-mapping-", "")
 
-        # Calculate match rate from mapping file
+        # Calculate stats from mapping file
         try:
             with open(f, "r", encoding="utf-8") as mf:
                 mapping = json.load(mf)
             total = len(mapping)
             matched = sum(1 for v in mapping.values() if v is not None)
-            match_rates[lang] = round(matched / total * 100, 1) if total > 0 else 0
+            match_rate = round(matched / total * 100, 1) if total > 0 else 0
+
+            # Calculate min/max years from matched tracks
+            years = [v.get("year") for v in mapping.values() if v is not None and v.get("year")]
+            min_date = min(years) if years else None
+            max_date = max(years) if years else None
         except (json.JSONDecodeError, IOError):
-            match_rates[lang] = 0
+            match_rate = 0
+            min_date = None
+            max_date = None
 
-    langs.sort()
+        game_obj = {
+            "mapping": mapping_id,
+            "name": game_names.get(mapping_id, f"Unknown ({mapping_id})"),
+            "matchRate": match_rate,
+        }
+        if min_date is not None:
+            game_obj["minDate"] = min_date
+        if max_date is not None:
+            game_obj["maxDate"] = max_date
 
-    # Load game names from playlists.csv if available
-    games = {}
-    if playlists_dir:
-        playlists_path = playlists_dir / "playlists.csv"
-        games = load_playlists_csv(playlists_path)
+        games_list.append(game_obj)
 
-    # Build games mapping for available langs only
-    games_for_manifest = {lang: games.get(lang, f"Unknown ({lang})") for lang in langs}
+    # Sort by mapping name
+    games_list.sort(key=lambda g: g["mapping"])
 
-    manifest = {
-        "mappings": langs,
-        "games": games_for_manifest,
-        "matchRates": match_rates
-    }
+    manifest = {"games": games_list}
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
 
-    print(f"Updated manifest: {manifest_path} ({len(langs)} mappings)")
+    print(f"Updated manifest: {manifest_path} ({len(games_list)} games)")
 
 
 def download_song(url: str, artist: str, title: str, year: str, output_dir: Path, cookies: str = None, debug: bool = False) -> bool:
@@ -414,6 +448,69 @@ def download_song(url: str, artist: str, title: str, year: str, output_dir: Path
                 pass
 
 
+def check_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False, fix: bool = False) -> None:
+    """Check that all rating keys in a mapping file still exist in Plex."""
+    if not mapping_path.exists():
+        print(f"Error: Mapping file not found: {mapping_path}")
+        sys.exit(1)
+
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        mapping = json.load(f)
+
+    # Get all entries with rating keys
+    entries_with_keys = [(card_id, entry) for card_id, entry in mapping.items()
+                         if entry is not None and entry.get("ratingKey")]
+
+    print(f"Checking {len(entries_with_keys)} tracks in {mapping_path.name}...\n")
+
+    missing = []
+    for i, (card_id, entry) in enumerate(entries_with_keys):
+        rating_key = entry.get("ratingKey")
+        artist = entry.get("artist", "Unknown")
+        title = entry.get("title", "Unknown")
+
+        if debug:
+            print(f"[{i + 1}/{len(entries_with_keys)}] Checking {rating_key}: {artist} - {title}... ", end="", flush=True)
+
+        try:
+            url = f"{server_url}/library/metadata/{rating_key}"
+            response = plex_request(url, token)
+            metadata = response.get("MediaContainer", {}).get("Metadata", [])
+            if metadata:
+                if debug:
+                    print("OK")
+            else:
+                if debug:
+                    print("MISSING")
+                missing.append((card_id, rating_key, artist, title))
+        except Exception as e:
+            if debug:
+                print(f"MISSING ({e})")
+            missing.append((card_id, rating_key, artist, title))
+
+    # Summary
+    print(f"\n{'=' * 50}")
+    print(f"Check complete: {len(entries_with_keys)} tracks checked")
+    if missing:
+        print(f"\nMISSING TRACKS ({len(missing)}):")
+        for card_id, rating_key, artist, title in missing:
+            print(f"  Card #{card_id}: {artist} - {title} (ratingKey: {rating_key})")
+
+        if fix:
+            # Remove missing entries from mapping
+            for card_id, _, _, _ in missing:
+                mapping[card_id] = None
+            with open(mapping_path, "w", encoding="utf-8") as f:
+                json.dump(mapping, f, indent=2)
+            print(f"\nRemoved {len(missing)} missing tracks from mapping.")
+            print("Run plex-mapper again to re-match these tracks.")
+        else:
+            print(f"\nUse --fix to remove these tracks from the mapping.")
+    else:
+        print("All tracks exist in Plex!")
+    print("=" * 50)
+
+
 def main():
     args = parse_args()
 
@@ -425,6 +522,28 @@ def main():
     if not csv_path.exists():
         print(f"Error: CSV file not found: {csv_path}")
         sys.exit(1)
+
+    # Determine output/mapping filename
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        csv_basename = csv_path.stem
+        lang = csv_basename.replace("hitster-", "")
+        output_path = Path(f"plex-mapping-{lang}.json")
+
+    # Handle --check mode
+    if args.check:
+        print(f"Testing Plex connection: {server_url}")
+        try:
+            server_info = plex_request(f"{server_url}/", args.token)
+            container = server_info.get("MediaContainer", {})
+            print(f"Connected to: {container.get('friendlyName', 'Unknown')}\n")
+        except Exception as e:
+            print(f"Error: Cannot connect to Plex server: {e}")
+            sys.exit(1)
+
+        check_mapping(server_url, args.token, output_path, args.debug, args.fix)
+        sys.exit(0)
 
     print(f"Reading CSV: {csv_path}")
     headers, rows = parse_csv(str(csv_path))
@@ -462,14 +581,6 @@ def main():
         print(f"Search API working! (Found {size} results for 'test')")
     except Exception as e:
         print(f"Warning: Search API test failed: {e}")
-
-    # Determine output filename (no timestamp)
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        csv_basename = csv_path.stem
-        lang = csv_basename.replace("hitster-", "")
-        output_path = Path(f"plex-mapping-{lang}.json")
 
     # Load existing mapping if not rematching (or if using --id, always load)
     existing_mapping = {}

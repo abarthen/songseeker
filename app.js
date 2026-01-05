@@ -10,8 +10,9 @@ let currentStartTime = 0;
 // Plex integration
 let plexMappingCache = {}; // In-memory cache for Plex mappings
 let plexConfig = { serverUrl: '', token: '' }; // Loaded from plex-config.json
-let plexGames = {}; // Game names from manifest
-let plexMatchRates = {}; // Match rates from manifest
+let plexGames = {}; // Game names from manifest (mapping -> name)
+let plexMatchRates = {}; // Match rates from manifest (mapping -> rate)
+let plexDateRanges = {}; // Date ranges from manifest (mapping -> {min, max})
 
 // Function to detect iOS devices
 function isIOS() {
@@ -39,12 +40,24 @@ async function loadPlexMappings() {
         const manifestResponse = await fetch('/plex-manifest.json');
         if (manifestResponse.ok) {
             const manifest = await manifestResponse.json();
-            availableLangs = manifest.mappings || [];
-            plexGames = manifest.games || {};
-            plexMatchRates = manifest.matchRates || {};
+            // New format: games is an array of objects
+            const games = manifest.games || [];
+            availableLangs = games.map(g => g.mapping);
+            // Build lookup objects for compatibility
+            plexGames = {};
+            plexMatchRates = {};
+            plexDateRanges = {};
+            games.forEach(g => {
+                plexGames[g.mapping] = g.name;
+                plexMatchRates[g.mapping] = g.matchRate;
+                if (g.minDate && g.maxDate) {
+                    plexDateRanges[g.mapping] = { min: g.minDate, max: g.maxDate };
+                }
+            });
             console.log('Loaded manifest:', availableLangs);
             console.log('Loaded games:', plexGames);
             console.log('Loaded match rates:', plexMatchRates);
+            console.log('Loaded date ranges:', plexDateRanges);
         }
     } catch (e) {
         console.log('No manifest found, skipping mapping load');
@@ -483,12 +496,14 @@ function updateGameEditionsList() {
         return;
     }
 
-    // Build a simple list of game names with match rates
+    // Build a simple list of game names with date ranges and match rates
     const listHtml = '<ul style="margin: 0.5rem 0; padding-left: 1.5rem; text-align: left;">' +
         gameEntries.map(([lang, name]) => {
+            const range = plexDateRanges[lang];
+            const rangeStr = range ? ` (${range.min}-${range.max})` : '';
             const rate = plexMatchRates[lang];
-            const rateStr = rate !== undefined ? ` (${rate}%)` : '';
-            return `<li>${name}${rateStr}</li>`;
+            const rateStr = rate !== undefined ? ` ${rate}%` : '';
+            return `<li>${name}${rangeStr}${rateStr}</li>`;
         }).join('') +
         '</ul>';
     listEl.innerHTML = listHtml;

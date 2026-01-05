@@ -64,7 +64,7 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 **Plex Integration:**
 - `plex-config.json` - Plex server URL and token (gitignored, must be created manually)
-- `plex-manifest.json` - Lists available mapping files, game edition names, and match rates
+- `plex-manifest.json` - Array of game objects with mapping ID, name, matchRate, minDate, maxDate
 - `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
 - Debug info shows Plex lookup status for each card
 - Unmatched cards show "Card #X not available" feedback to the user

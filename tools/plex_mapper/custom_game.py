@@ -27,27 +27,36 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 
-from .plex_api import fetch_plex_track, load_plex_config
+from .plex_api import fetch_plex_track, load_plex_config, list_plex_playlists, get_playlist_tracks, load_date_remapper
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Create custom SongSeeker games from Plex rating keys"
+        description="Create custom SongSeeker games from Plex rating keys or playlists"
     )
     parser.add_argument(
-        "--name", "-n", required=True, help="Game name for display (e.g., '80s Classics')"
+        "--name", "-n", help="Game name for display (e.g., '80s Classics')"
     )
     parser.add_argument(
-        "--mapping", "-m", required=True, help="Mapping identifier (e.g., '80s-classics')"
+        "--mapping", "-m", help="Mapping identifier (e.g., '80s-classics')"
     )
     parser.add_argument(
-        "--keys", "-k", required=True, help="Comma-separated rating keys OR path to file with one key per line"
+        "--extend", "-e", help="Path to existing mapping JSON to extend (skips existing songs)"
+    )
+    parser.add_argument(
+        "--keys", "-k", help="Comma-separated rating keys OR path to file with one key per line"
+    )
+    parser.add_argument(
+        "--playlist", "-P", help="Plex playlist name or ratingKey to use as source"
+    )
+    parser.add_argument(
+        "--list-playlists", "-L", action="store_true", help="List available Plex playlists and exit"
     )
     parser.add_argument(
         "--output-dir", "-o", default=".", help="Directory to save mapping JSON (default: current directory)"
     )
     parser.add_argument(
-        "--cards-pdf", "-p", required=True, help="Output PDF path for generated cards"
+        "--cards-pdf", "-p", help="Output PDF path for generated cards"
     )
     parser.add_argument(
         "--server", "-s", help="Plex server URL (default: from plex-config.json)"
@@ -101,22 +110,44 @@ def parse_keys(keys_arg: str) -> list[str]:
     return keys
 
 
-def update_manifest(manifest_path: Path, mapping_name: str, game_name: str) -> None:
+def update_manifest(manifest_path: Path, mapping_name: str, game_name: str, tracks: list[dict]) -> None:
     """Add custom game to plex-manifest.json."""
     # Load existing manifest or create new
     if manifest_path.exists():
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
     else:
-        manifest = {"mappings": [], "games": {}, "matchRates": {}}
+        manifest = {"games": []}
 
-    # Add/update the custom game
-    if mapping_name not in manifest["mappings"]:
-        manifest["mappings"].append(mapping_name)
-        manifest["mappings"].sort()
+    # Ensure games is a list (migrate from old format if needed)
+    if "games" not in manifest or not isinstance(manifest.get("games"), list):
+        manifest = {"games": []}
 
-    manifest["games"][mapping_name] = game_name
-    manifest["matchRates"][mapping_name] = 100.0
+    # Calculate min/max years from tracks
+    years = [t.get("year") for t in tracks if t.get("year")]
+    min_date = min(years) if years else None
+    max_date = max(years) if years else None
+
+    # Build new game entry
+    game_obj = {
+        "mapping": mapping_name,
+        "name": game_name,
+        "matchRate": 100.0,
+    }
+    if min_date is not None:
+        game_obj["minDate"] = min_date
+    if max_date is not None:
+        game_obj["maxDate"] = max_date
+
+    # Find and update existing entry, or add new one
+    existing_idx = next((i for i, g in enumerate(manifest["games"]) if g.get("mapping") == mapping_name), None)
+    if existing_idx is not None:
+        manifest["games"][existing_idx] = game_obj
+    else:
+        manifest["games"].append(game_obj)
+
+    # Sort by mapping name
+    manifest["games"].sort(key=lambda g: g.get("mapping", ""))
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
@@ -307,25 +338,139 @@ def generate_cards_pdf(tracks: list[dict], output_path: str, icon_path: str = No
 def main():
     args = parse_args()
 
+    # Load date remapper (for overriding years from best-of albums etc.)
+    load_date_remapper()
+
     # Normalize server URL
     server_url = args.server.rstrip("/")
 
-    # Ensure mapping identifier has "de-" prefix for consistency
-    mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
+    # Handle --list-playlists mode
+    if args.list_playlists:
+        print("Fetching playlists from Plex...\n")
+        playlists = list_plex_playlists(server_url, args.token, args.debug)
+        if not playlists:
+            print("No audio playlists found.")
+            sys.exit(0)
 
-    # Parse rating keys
-    keys = parse_keys(args.keys)
-    if not keys:
-        print("Error: No rating keys provided")
+        print(f"{'ratingKey':<12} {'Tracks':<8} Title")
+        print("-" * 60)
+        for pl in playlists:
+            print(f"{pl['ratingKey']:<12} {pl['leafCount']:<8} {pl['title']}")
+        sys.exit(0)
+
+    # Handle extend mode vs create mode
+    existing_mapping = {}
+    existing_tracks = []
+    extend_mode = False
+
+    if args.extend:
+        extend_mode = True
+        extend_path = Path(args.extend)
+        if not extend_path.exists():
+            print(f"Error: File not found: {args.extend}")
+            sys.exit(1)
+
+        # Load existing mapping
+        with open(extend_path, "r", encoding="utf-8") as f:
+            existing_mapping = json.load(f)
+
+        # Extract mapping_id from filename (e.g., plex-mapping-de-custom.json -> de-custom)
+        filename = extend_path.name
+        if filename.startswith("plex-mapping-") and filename.endswith(".json"):
+            mapping_id = filename[len("plex-mapping-"):-len(".json")]
+        else:
+            print(f"Error: Cannot extract mapping ID from filename: {filename}")
+            print("Expected format: plex-mapping-{id}.json")
+            sys.exit(1)
+
+        # Get game name from manifest or --name
+        output_dir = extend_path.parent
+        manifest_path = output_dir / "plex-manifest.json"
+        game_name = args.name
+        if not game_name and manifest_path.exists():
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            game_name = manifest.get("games", {}).get(mapping_id)
+
+        if not game_name:
+            print("Error: --name is required when extending (or game must exist in manifest)")
+            sys.exit(1)
+
+        # Build list of existing tracks for full PDF
+        existing_tracks = list(existing_mapping.values())
+        print(f"Extending existing mapping: {extend_path}")
+        print(f"  Existing tracks: {len(existing_mapping)}")
+
+    else:
+        # Create mode - validate required arguments
+        if not args.name:
+            print("Error: --name is required")
+            sys.exit(1)
+        if not args.mapping:
+            print("Error: --mapping is required")
+            sys.exit(1)
+
+        game_name = args.name
+        mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
+        output_dir = Path(args.output_dir)
+
+    if not args.cards_pdf:
+        print("Error: --cards-pdf is required")
+        sys.exit(1)
+    if not args.keys and not args.playlist:
+        print("Error: Either --keys or --playlist is required")
         sys.exit(1)
 
-    print(f"Creating custom game: {args.name}")
+    # Get rating keys from playlist or direct input
+    if args.playlist:
+        print(f"Fetching tracks from playlist: {args.playlist}")
+        playlists = list_plex_playlists(server_url, args.token, args.debug)
+
+        # Find playlist by name or ratingKey
+        playlist_key = None
+        for pl in playlists:
+            if pl['ratingKey'] == args.playlist or pl['title'].lower() == args.playlist.lower():
+                playlist_key = pl['ratingKey']
+                print(f"Found playlist: {pl['title']} ({pl['leafCount']} tracks)")
+                break
+
+        if not playlist_key:
+            print(f"Error: Playlist '{args.playlist}' not found")
+            print("\nAvailable playlists:")
+            for pl in playlists:
+                print(f"  {pl['ratingKey']}: {pl['title']}")
+            sys.exit(1)
+
+        keys = get_playlist_tracks(server_url, args.token, playlist_key, args.debug)
+        if not keys:
+            print("Error: No tracks found in playlist")
+            sys.exit(1)
+        print(f"Retrieved {len(keys)} rating keys from playlist")
+    else:
+        # Parse rating keys from --keys argument
+        keys = parse_keys(args.keys)
+        if not keys:
+            print("Error: No rating keys provided")
+            sys.exit(1)
+
+    # Filter out existing keys in extend mode
+    if extend_mode:
+        original_count = len(keys)
+        keys = [k for k in keys if k not in existing_mapping]
+        skipped_existing = original_count - len(keys)
+        if skipped_existing > 0:
+            print(f"Skipping {skipped_existing} tracks already in mapping")
+        if not keys:
+            print("\nNo new tracks to add. Mapping is already up to date.")
+            sys.exit(0)
+
+    print(f"\n{'Extending' if extend_mode else 'Creating'} custom game: {game_name}")
     print(f"Mapping identifier: {mapping_id}")
-    print(f"Processing {len(keys)} rating keys...\n")
+    print(f"Processing {len(keys)} {'new ' if extend_mode else ''}rating keys...\n")
 
     # Fetch metadata for each key
-    mapping = {}
-    tracks = []
+    new_mapping = {}
+    new_tracks = []
     skipped = 0
 
     for i, key in enumerate(keys):
@@ -335,45 +480,68 @@ def main():
 
         if track:
             # Use rating key as both key and ratingKey value
-            mapping[key] = track
-            tracks.append(track)
+            new_mapping[key] = track
+            new_tracks.append(track)
             print(f"OK ({track['artist']} - {track['title']})")
         else:
             print("SKIPPED (not found)")
             skipped += 1
 
-    if not tracks:
+    if not new_tracks and not existing_tracks:
         print("\nError: No valid tracks found. Cannot create game.")
         sys.exit(1)
 
+    # Merge mappings
+    final_mapping = {**existing_mapping, **new_mapping}
+    all_tracks = existing_tracks + new_tracks
+
     # Write mapping file
-    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     mapping_path = output_dir / f"plex-mapping-{mapping_id}.json"
 
     with open(mapping_path, "w", encoding="utf-8") as f:
-        json.dump(mapping, f, indent=2)
+        json.dump(final_mapping, f, indent=2)
 
     print(f"\nMapping saved to: {mapping_path}")
 
     # Update manifest
     manifest_path = output_dir / "plex-manifest.json"
-    update_manifest(manifest_path, mapping_id, args.name)
+    update_manifest(manifest_path, mapping_id, game_name, all_tracks)
     print(f"Manifest updated: {manifest_path}")
 
-    # Generate cards PDF
-    print(f"\nGenerating cards PDF: {args.cards_pdf}")
-    generate_cards_pdf(tracks, args.cards_pdf, args.icon, game_name=args.name)
+    # Generate cards PDFs
+    if extend_mode and new_tracks:
+        # Generate both full and new-only PDFs
+        base_pdf = Path(args.cards_pdf)
+        full_pdf = base_pdf.with_stem(f"{base_pdf.stem}-full")
+        new_pdf = base_pdf.with_stem(f"{base_pdf.stem}-new")
+
+        print(f"\nGenerating full PDF ({len(all_tracks)} cards): {full_pdf}")
+        generate_cards_pdf(all_tracks, str(full_pdf), args.icon, game_name=game_name)
+
+        print(f"Generating new-only PDF ({len(new_tracks)} cards): {new_pdf}")
+        generate_cards_pdf(new_tracks, str(new_pdf), args.icon, game_name=game_name)
+
+        cards_summary = f"\n  Full PDF: {full_pdf}\n  New-only PDF: {new_pdf}"
+    else:
+        print(f"\nGenerating cards PDF: {args.cards_pdf}")
+        generate_cards_pdf(all_tracks if extend_mode else new_tracks, args.cards_pdf, args.icon, game_name=game_name)
+        cards_summary = f"\n  Cards PDF: {args.cards_pdf}"
 
     # Summary
     print(f"\n{'=' * 40}")
-    print(f"Custom game created successfully!")
-    print(f"  Game name: {args.name}")
-    print(f"  Tracks: {len(tracks)}")
+    print(f"Custom game {'extended' if extend_mode else 'created'} successfully!")
+    print(f"  Game name: {game_name}")
+    if extend_mode:
+        print(f"  Existing tracks: {len(existing_tracks)}")
+        print(f"  New tracks: {len(new_tracks)}")
+        print(f"  Total tracks: {len(all_tracks)}")
+    else:
+        print(f"  Tracks: {len(new_tracks)}")
     if skipped > 0:
         print(f"  Skipped: {skipped} (invalid keys)")
     print(f"  Mapping: {mapping_path}")
-    print(f"  Cards PDF: {args.cards_pdf}")
+    print(cards_summary)
     print("=" * 40 + "\n")
 
 
