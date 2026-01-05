@@ -129,7 +129,7 @@ function lookupPlexTrackByRatingKey(ratingKey) {
             const track = mapping[key];
             if (track && track.alternativeKeys && track.alternativeKeys.includes(ratingKey)) {
                 console.log(`Found via alternativeKeys: ${ratingKey} -> ${track.ratingKey}`);
-                return { track: track, game: lang };
+                return { track: track, game: lang, scannedKey: ratingKey };
             }
         }
     }
@@ -202,6 +202,7 @@ async function handleScannedLink(decodedText) {
     let plexTrackInfo = null;
     let plexDebugInfo = "";
     let hitsterData = null;
+    let scannedKey = null;  // Set when card was matched via alternativeKey
 
     if (isPlexRatingKey(decodedText)) {
         // Direct rating key from custom game card (plex:12345)
@@ -217,6 +218,7 @@ async function handleScannedLink(decodedText) {
             const result = lookupPlexTrackByRatingKey(ratingKey);
             if (result) {
                 plexTrackInfo = result.track;
+                scannedKey = result.scannedKey || null;
                 plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
                 console.log(`Found in mapping (${result.game}):`, plexTrackInfo.artist, "-", plexTrackInfo.title);
             } else {
@@ -271,7 +273,12 @@ async function handleScannedLink(decodedText) {
         const plexSettings = getPlexSettings();
         playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
 
-        document.getElementById('song-ratingkey').textContent = plexTrackInfo.ratingKey;
+        // Show scanned key if it differs from the track's ratingKey (matched via alternativeKey)
+        if (scannedKey && scannedKey !== plexTrackInfo.ratingKey) {
+            document.getElementById('song-ratingkey').textContent = `${plexTrackInfo.ratingKey} (card: ${scannedKey})`;
+        } else {
+            document.getElementById('song-ratingkey').textContent = plexTrackInfo.ratingKey;
+        }
         document.getElementById('song-artist').textContent = plexTrackInfo.artist;
         document.getElementById('song-title').textContent = plexTrackInfo.title;
         document.getElementById('song-title').style.color = '';
