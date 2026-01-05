@@ -27,7 +27,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 
-from .plex_api import fetch_plex_track, load_plex_config, list_plex_playlists, get_playlist_tracks, load_date_remapper
+from .plex_api import (
+    fetch_plex_track,
+    find_playlist,
+    get_playlist_tracks,
+    list_plex_playlists,
+    load_track_remapper,
+    resolve_plex_credentials,
+)
 
 
 def parse_args():
@@ -83,25 +90,7 @@ def parse_args():
         "--manifest", help="Path to plex-manifest.json (default: same directory as output)"
     )
 
-    args = parser.parse_args()
-
-    # Load config file if server/token not provided
-    if not args.server or not args.token:
-        config_path = Path(args.config) if args.config else Path(__file__).parent.parent.parent / "plex-config.json"
-        config_server, config_token = load_plex_config(config_path)
-
-        if not args.server:
-            args.server = config_server
-        if not args.token:
-            args.token = config_token
-
-    # Validate we have required values
-    if not args.server or not args.token:
-        print("Error: Plex server and token are required.")
-        print("Either provide --server and --token, or create plex-config.json")
-        sys.exit(1)
-
-    return args
+    return parser.parse_args()
 
 
 def parse_keys(keys_arg: str) -> list[str]:
@@ -340,9 +329,12 @@ def generate_cards_pdf(tracks: list[dict], output_path: str, icon_path: str = No
 def main():
     args = parse_args()
 
-    # Load date remapper (for overriding years from best-of albums etc.)
+    # Resolve Plex credentials from config file if not provided
+    resolve_plex_credentials(args)
+
+    # Load track remapper (for overriding years, artists, titles)
     remapper_path = Path(args.remapper) if args.remapper else None
-    load_date_remapper(remapper_path)
+    load_track_remapper(remapper_path)
 
     # Normalize server URL
     server_url = args.server.rstrip("/")
@@ -447,22 +439,7 @@ def main():
     # Get rating keys from playlist or direct input
     if args.playlist:
         print(f"Fetching tracks from playlist: {args.playlist}")
-        playlists = list_plex_playlists(server_url, args.token, args.debug)
-
-        # Find playlist by name or ratingKey
-        playlist_key = None
-        for pl in playlists:
-            if pl['ratingKey'] == args.playlist or pl['title'].lower() == args.playlist.lower():
-                playlist_key = pl['ratingKey']
-                print(f"Found playlist: {pl['title']} ({pl['leafCount']} tracks)")
-                break
-
-        if not playlist_key:
-            print(f"Error: Playlist '{args.playlist}' not found")
-            print("\nAvailable playlists:")
-            for pl in playlists:
-                print(f"  {pl['ratingKey']}: {pl['title']}")
-            sys.exit(1)
+        playlist_key, _, _ = find_playlist(server_url, args.token, args.playlist, args.debug)
 
         keys = get_playlist_tracks(server_url, args.token, playlist_key, args.debug)
         if not keys:

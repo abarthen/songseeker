@@ -21,29 +21,19 @@ from urllib.parse import quote
 
 import requests
 
-from .plex_api import load_plex_config, plex_request, fetch_plex_track, get_remapped_year, get_remapped_artist, get_remapped_title, extract_guids, load_track_remapper
-
-
-def normalize_for_comparison(text: str) -> str:
-    """Normalize text for fuzzy comparison by removing spaces, punctuation, and lowercasing."""
-    if not text:
-        return ""
-    # Lowercase
-    text = text.lower()
-    # Normalize & to and (before removing spaces)
-    text = text.replace(" & ", " and ").replace("&", " and ")
-    # Remove common punctuation and spaces
-    text = re.sub(r"[\s\-_'.,:;!?]+", "", text)
-    # Remove accents (basic normalization)
-    text = text.replace("ä", "a").replace("ö", "o").replace("ü", "u")
-    text = text.replace("é", "e").replace("è", "e").replace("ê", "e")
-    text = text.replace("á", "a").replace("à", "a").replace("â", "a")
-    text = text.replace("ó", "o").replace("ò", "o").replace("ô", "o")
-    text = text.replace("ú", "u").replace("ù", "u").replace("û", "u")
-    text = text.replace("ñ", "n").replace("ß", "ss")
-    # Ligatures
-    text = text.replace("æ", "ae").replace("œ", "oe")
-    return text
+from .plex_api import (
+    load_plex_config,
+    plex_request,
+    fetch_plex_track,
+    get_remapped_year,
+    get_remapped_artist,
+    get_remapped_title,
+    extract_guids,
+    load_track_remapper,
+    normalize_for_comparison,
+    resolve_plex_credentials,
+    test_plex_connection,
+)
 
 
 def parse_args():
@@ -121,20 +111,7 @@ def parse_args():
         sys.exit(1)
 
     # Load config file if server/token not provided
-    if not args.server or not args.token:
-        config_path = Path(args.config) if args.config else Path(__file__).parent.parent.parent / "plex-config.json"
-        config_server, config_token = load_plex_config(config_path)
-
-        if not args.server:
-            args.server = config_server
-        if not args.token:
-            args.token = config_token
-
-    # Validate we have required values
-    if not args.server or not args.token:
-        print("Error: Plex server and token are required.")
-        print("Either provide --server and --token, or create plex-config.json")
-        sys.exit(1)
+    resolve_plex_credentials(args)
 
     return args
 
@@ -659,29 +636,15 @@ def main():
 
     # Handle --check mode
     if args.check:
-        print(f"Testing Plex connection: {server_url}")
-        try:
-            server_info = plex_request(f"{server_url}/", args.token)
-            container = server_info.get("MediaContainer", {})
-            print(f"Connected to: {container.get('friendlyName', 'Unknown')}\n")
-        except Exception as e:
-            print(f"Error: Cannot connect to Plex server: {e}")
-            sys.exit(1)
-
+        test_plex_connection(server_url, args.token)
+        print()
         check_mapping(server_url, args.token, output_path, args.debug, args.fix)
         sys.exit(0)
 
     # Handle --enrich mode
     if args.enrich:
-        print(f"Testing Plex connection: {server_url}")
-        try:
-            server_info = plex_request(f"{server_url}/", args.token)
-            container = server_info.get("MediaContainer", {})
-            print(f"Connected to: {container.get('friendlyName', 'Unknown')}\n")
-        except Exception as e:
-            print(f"Error: Cannot connect to Plex server: {e}")
-            sys.exit(1)
-
+        test_plex_connection(server_url, args.token)
+        print()
         enrich_mapping(server_url, args.token, output_path, args.debug)
 
         # Update manifest after enriching
@@ -705,26 +668,8 @@ def main():
 
     url_idx = headers.index("URL") if "URL" in headers else -1
 
-    # Test Plex connection
-    print(f"Testing Plex connection: {server_url}")
-    try:
-        server_info = plex_request(f"{server_url}/", args.token)
-        container = server_info.get("MediaContainer", {})
-        print(f"Plex connection successful!")
-        print(f"  Server: {container.get('friendlyName', 'Unknown')}")
-        print(f"  Version: {container.get('version', 'Unknown')}")
-    except Exception as e:
-        print(f"Error: Cannot connect to Plex server: {e}")
-        sys.exit(1)
-
-    # Test search API
-    print("\nTesting Plex search API...")
-    try:
-        test_search = plex_request(f"{server_url}/search?query=test&type=10", args.token)
-        size = test_search.get("MediaContainer", {}).get("size", 0)
-        print(f"Search API working! (Found {size} results for 'test')")
-    except Exception as e:
-        print(f"Warning: Search API test failed: {e}")
+    # Test Plex connection and search API
+    test_plex_connection(server_url, args.token, test_search=True)
 
     # Load existing mapping if not rematching (or if using --id, always load)
     existing_mapping = {}

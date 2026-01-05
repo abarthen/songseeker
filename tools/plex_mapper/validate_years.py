@@ -20,6 +20,8 @@ from urllib.parse import quote
 
 import requests
 
+from .plex_api import normalize_for_comparison
+
 
 MUSICBRAINZ_API = "https://musicbrainz.org/ws/2"
 USER_AGENT = "SongSeeker-YearValidator/1.0 (https://github.com/andygruber/songseeker)"
@@ -159,27 +161,6 @@ def search_musicbrainz(artist: str, title: str, debug: bool = False) -> list[dic
             print(f"  -> Found {len(older_results)} additional older recordings")
 
     return all_results
-
-
-def normalize_for_comparison(text: str) -> str:
-    """Normalize text for fuzzy comparison - keep only alphanumeric."""
-    if not text:
-        return ""
-    import re
-    text = text.lower()
-    # Replace & with "and" before stripping
-    text = text.replace("&", "and")
-    # Remove accents first
-    replacements = {
-        "ä": "a", "ö": "o", "ü": "u", "é": "e", "è": "e", "ê": "e",
-        "á": "a", "à": "a", "â": "a", "ó": "o", "ò": "o", "ô": "o",
-        "ú": "u", "ù": "u", "û": "u", "ñ": "n", "ß": "ss", "æ": "ae", "œ": "oe"
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    # Keep only alphanumeric characters
-    text = re.sub(r"[^a-z0-9]", "", text)
-    return text
 
 
 def find_best_match(plex_artist: str, plex_title: str, mb_results: list[dict], debug: bool = False) -> dict | None:

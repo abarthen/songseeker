@@ -7,9 +7,123 @@ used by both plex-mapper and custom-game tools.
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import requests
+
+
+def normalize_for_comparison(text: str) -> str:
+    """Normalize text for fuzzy comparison by removing spaces, punctuation, and lowercasing."""
+    if not text:
+        return ""
+    # Lowercase
+    text = text.lower()
+    # Normalize & to and (before removing spaces)
+    text = text.replace(" & ", " and ").replace("&", " and ")
+    # Remove common punctuation and spaces
+    text = re.sub(r"[\s\-_'.,:;!?]+", "", text)
+    # Remove accents (basic normalization)
+    text = text.replace("ä", "a").replace("ö", "o").replace("ü", "u")
+    text = text.replace("é", "e").replace("è", "e").replace("ê", "e")
+    text = text.replace("á", "a").replace("à", "a").replace("â", "a")
+    text = text.replace("ó", "o").replace("ò", "o").replace("ô", "o")
+    text = text.replace("ú", "u").replace("ù", "u").replace("û", "u")
+    text = text.replace("ñ", "n").replace("ß", "ss")
+    # Ligatures
+    text = text.replace("æ", "ae").replace("œ", "oe")
+    return text
+
+
+def resolve_plex_credentials(args, config_attr: str = "config") -> None:
+    """Load Plex credentials from config file if not provided in args.
+
+    Modifies args in-place to set server and token from config file.
+    Exits with error if credentials cannot be resolved.
+
+    Args:
+        args: Parsed arguments object with server, token, and config attributes
+        config_attr: Name of the config path attribute on args (default: "config")
+    """
+    if not args.server or not args.token:
+        config_value = getattr(args, config_attr, None)
+        config_path = Path(config_value) if config_value else Path(__file__).parent.parent.parent / "plex-config.json"
+        config_server, config_token = load_plex_config(config_path)
+
+        if not args.server:
+            args.server = config_server
+        if not args.token:
+            args.token = config_token
+
+    # Validate we have required values
+    if not args.server or not args.token:
+        print("Error: Plex server and token are required.")
+        print("Either provide --server and --token, or create plex-config.json")
+        sys.exit(1)
+
+
+def test_plex_connection(server_url: str, token: str, test_search: bool = False) -> dict:
+    """Test connection to Plex server and optionally test search API.
+
+    Args:
+        server_url: Plex server URL
+        token: Plex authentication token
+        test_search: If True, also test the search API
+
+    Returns:
+        Server info dict with 'friendlyName' and 'version'
+
+    Raises:
+        SystemExit: If connection fails
+    """
+    print(f"Testing Plex connection: {server_url}")
+    try:
+        server_info = plex_request(f"{server_url}/", token)
+        container = server_info.get("MediaContainer", {})
+        print(f"Plex connection successful!")
+        print(f"  Server: {container.get('friendlyName', 'Unknown')}")
+        print(f"  Version: {container.get('version', 'Unknown')}")
+    except Exception as e:
+        print(f"Error: Cannot connect to Plex server: {e}")
+        sys.exit(1)
+
+    if test_search:
+        print("\nTesting Plex search API...")
+        try:
+            test_result = plex_request(f"{server_url}/search?query=test&type=10", token)
+            size = test_result.get("MediaContainer", {}).get("size", 0)
+            print(f"Search API working! (Found {size} results for 'test')")
+        except Exception as e:
+            print(f"Warning: Search API test failed: {e}")
+
+    return container
+
+
+def find_playlist(server_url: str, token: str, playlist_name_or_key: str, debug: bool = False) -> tuple[str, str, int] | None:
+    """Find a playlist by name or ratingKey.
+
+    Args:
+        server_url: Plex server URL
+        token: Plex authentication token
+        playlist_name_or_key: Playlist name (case-insensitive) or ratingKey
+        debug: Enable debug output
+
+    Returns:
+        Tuple of (ratingKey, title, trackCount) if found, None otherwise.
+        Prints available playlists and exits if not found.
+    """
+    playlists = list_plex_playlists(server_url, token, debug)
+
+    for pl in playlists:
+        if pl['ratingKey'] == playlist_name_or_key or pl['title'].lower() == playlist_name_or_key.lower():
+            print(f"Found playlist: {pl['title']} ({pl['leafCount']} tracks)")
+            return pl['ratingKey'], pl['title'], pl['leafCount']
+
+    print(f"Error: Playlist '{playlist_name_or_key}' not found")
+    print("\nAvailable playlists:")
+    for pl in playlists:
+        print(f"  {pl['ratingKey']}: {pl['title']}")
+    sys.exit(1)
 
 # Global cache for track remapper (year, artist, title overrides)
 _track_remapper: dict[str, dict] = {}
@@ -60,12 +174,6 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
         print(f"Warning: Could not load track remapper: {e}")
         _track_remapper_loaded = True
         return _track_remapper
-
-
-# Alias for backwards compatibility
-def load_date_remapper(remapper_path: Path = None) -> dict[str, dict]:
-    """Alias for load_track_remapper (backwards compatibility)."""
-    return load_track_remapper(remapper_path)
 
 
 def get_remapped_year(rating_key: str, original_year: int) -> int:
