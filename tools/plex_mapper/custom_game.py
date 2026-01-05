@@ -277,9 +277,20 @@ def add_text_box(c: canvas.Canvas, track: dict, position: tuple, box_size: float
         c.drawString(year_x, year_y, year)
 
     # Draw title (bottom, centered)
+    # Reduce font size for long titles to prevent overlap with year
     title = track.get("title", "Unknown Title")
     if title:
-        title_lines = textwrap.wrap(title, width=20)
+        title_len = len(title)
+        if title_len > 55:
+            font_size_title = 10
+            wrap_width = 28
+        elif title_len > 40:
+            font_size_title = 12
+            wrap_width = 24
+        else:
+            wrap_width = 20
+
+        title_lines = textwrap.wrap(title, width=wrap_width)
         title_y = y + (len(title_lines) - 1) * (text_margin + font_size_title) + font_size_title / 2 + text_indent
 
         for line in title_lines:

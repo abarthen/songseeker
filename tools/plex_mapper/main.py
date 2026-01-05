@@ -297,6 +297,18 @@ def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
     # Find all plex-mapping-*.json files in the directory
     mapping_files = list(output_dir.glob("plex-mapping-*.json"))
 
+    # Load existing manifest to preserve custom game names
+    existing_names = {}
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                existing_manifest = json.load(f)
+            for game in existing_manifest.get("games", []):
+                if game.get("mapping") and game.get("name"):
+                    existing_names[game["mapping"]] = game["name"]
+        except (json.JSONDecodeError, IOError):
+            pass
+
     # Load game names from playlists.csv if available
     game_names = {}
     if playlists_dir:
@@ -323,12 +335,16 @@ def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
             max_date = max(years) if years else None
         except (json.JSONDecodeError, IOError):
             match_rate = 0
+            total = 0
             min_date = None
             max_date = None
 
+        # Priority: playlists.csv > existing manifest > fallback
+        game_name = game_names.get(mapping_id) or existing_names.get(mapping_id) or f"Unknown ({mapping_id})"
+
         game_obj = {
             "mapping": mapping_id,
-            "name": game_names.get(mapping_id, f"Unknown ({mapping_id})"),
+            "name": game_name,
             "songCount": total,
             "matchRate": match_rate,
         }
