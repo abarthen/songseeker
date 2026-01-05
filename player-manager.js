@@ -72,7 +72,7 @@ export class PlayerManager {
      */
     play() {
         if (this.plexPlayer) {
-            this.plexPlayer.playVideo();
+            this.plexPlayer.playSong();
         }
     }
 
@@ -81,7 +81,7 @@ export class PlayerManager {
      */
     pause() {
         if (this.plexPlayer) {
-            this.plexPlayer.pauseVideo();
+            this.plexPlayer.pauseSong();
         }
         this.clearPlaybackTimer();
     }
@@ -91,7 +91,7 @@ export class PlayerManager {
      */
     stop() {
         if (this.plexPlayer) {
-            this.plexPlayer.pauseVideo();
+            this.plexPlayer.pauseSong();
         }
         this.clearPlaybackTimer();
     }
@@ -146,8 +146,8 @@ export class PlayerManager {
      * Get track data
      * @returns {object} Media metadata
      */
-    getVideoData() {
-        return this.plexPlayer ? this.plexPlayer.getVideoData() : {};
+    getSongData() {
+        return this.plexPlayer ? this.plexPlayer.getSongData() : {};
     }
 
     /**
@@ -184,13 +184,13 @@ export class PlayerManager {
 
         const minStartPercentage = 0.10;
         const maxEndPercentage = 0.90;
-        const videoDuration = this.getDuration();
+        const songDuration = this.getDuration();
 
         let startTime = currentStartTime;
         let endTime = playbackDuration;
 
-        const minStartTime = Math.max(currentStartTime, videoDuration * minStartPercentage);
-        const maxEndTime = videoDuration * maxEndPercentage;
+        const minStartTime = Math.max(currentStartTime, songDuration * minStartPercentage);
+        const maxEndTime = songDuration * maxEndPercentage;
 
         if (endTime > maxEndTime) {
             endTime = maxEndTime;

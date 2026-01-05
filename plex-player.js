@@ -167,7 +167,7 @@ export class PlexPlayer {
     /**
      * Play the cued track
      */
-    playVideo() {
+    playSong() {
         if (this.audioElement.src) {
             this.audioElement.play().catch(e => {
                 console.error('Playback failed:', e);
@@ -178,7 +178,7 @@ export class PlexPlayer {
     /**
      * Pause playback
      */
-    pauseVideo() {
+    pauseSong() {
         this.audioElement.pause();
         this.clearPlaybackTimer();
     }
@@ -186,7 +186,7 @@ export class PlexPlayer {
     /**
      * Stop playback and reset
      */
-    stopVideo() {
+    stopSong() {
         this.audioElement.pause();
         this.audioElement.currentTime = 0;
         this.clearPlaybackTimer();
@@ -243,10 +243,10 @@ export class PlexPlayer {
      * Get track metadata
      * @returns {object} Current track info
      */
-    getVideoData() {
+    getSongData() {
         return {
             title: this.currentTrack ? `${this.currentTrack.artist} - ${this.currentTrack.title}` : '',
-            video_id: this.currentTrack ? this.currentTrack.ratingKey : ''
+            ratingKey: this.currentTrack ? this.currentTrack.ratingKey : ''
         };
     }
 
@@ -265,7 +265,7 @@ export class PlexPlayer {
     setPlaybackTimer(duration) {
         this.clearPlaybackTimer();
         this.playbackTimer = setTimeout(() => {
-            this.pauseVideo();
+            this.pauseSong();
         }, duration * 1000);
     }
 

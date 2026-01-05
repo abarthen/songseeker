@@ -159,10 +159,11 @@ hr {
   box-shadow: 0 0.15rem 0.5rem rgba(233, 93, 93, 0.15);
 }
 
-#videoid,
-#videotitle,
-#videoduration,
-#plexdebug {
+#ratingkeyrow,
+#artistrow,
+#titlerow,
+#yearrow,
+#durationrow {
   display: none;
   margin: 0.6rem auto;
   font-size: 1.1rem;

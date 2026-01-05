@@ -150,13 +150,6 @@ async function testPlexConnection() {
     }
 }
 
-function updatePlexDebug(message) {
-    const debugSpan = document.getElementById('plex-debug');
-    if (debugSpan) {
-        debugSpan.textContent = message;
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function () {
 
     const video = document.getElementById('qr-video');
@@ -193,9 +186,9 @@ async function handleScannedLink(decodedText) {
         playbackTimer = null;
     }
     playerManager.stop();
-    document.getElementById('startstop-video').innerHTML = "Play";
-    document.getElementById('startstop-video').style.background = "";
-    document.getElementById('startstop-video').classList.remove('playing');
+    document.getElementById('startstop-song').innerHTML = "Play";
+    document.getElementById('startstop-song').style.background = "";
+    document.getElementById('startstop-song').classList.remove('playing');
 
     let plexTrackInfo = null;
     let plexDebugInfo = "";
@@ -264,29 +257,30 @@ async function handleScannedLink(decodedText) {
     document.getElementById('cancelScanButton').style.display = 'none';
     lastDecodedText = "";
 
-    // Update debug info
-    updatePlexDebug(plexDebugInfo);
-
     // Handle Plex playback
     if (plexTrackInfo) {
         const plexSettings = getPlexSettings();
         playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
 
-        document.getElementById('video-id').textContent = plexTrackInfo.ratingKey;
-        document.getElementById('video-title').textContent = `${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
-        document.getElementById('video-title').style.color = '';
+        document.getElementById('song-ratingkey').textContent = plexTrackInfo.ratingKey;
+        document.getElementById('song-artist').textContent = plexTrackInfo.artist;
+        document.getElementById('song-title').textContent = plexTrackInfo.title;
+        document.getElementById('song-title').style.color = '';
+        document.getElementById('song-year').textContent = plexTrackInfo.year || '';
 
         currentStartTime = 0;
         await playerManager.cue({ trackInfo: plexTrackInfo });
     } else if (hitsterData) {
         // Card was recognized but not matched in Plex
         const normalizedCardId = String(parseInt(hitsterData.id, 10));
-        document.getElementById('video-id').textContent = '';
-        document.getElementById('video-title').textContent = `Card #${normalizedCardId} not available`;
-        document.getElementById('video-title').style.color = '#cc0000';
-        document.getElementById('video-duration').textContent = '';
-        document.getElementById('startstop-video').disabled = true;
-        document.getElementById('startstop-video').style.background = '';
+        document.getElementById('song-ratingkey').textContent = '';
+        document.getElementById('song-artist').textContent = '';
+        document.getElementById('song-title').textContent = `Card #${normalizedCardId} not available`;
+        document.getElementById('song-title').style.color = '#cc0000';
+        document.getElementById('song-year').textContent = '';
+        document.getElementById('song-duration').textContent = '';
+        document.getElementById('startstop-song').disabled = true;
+        document.getElementById('startstop-song').style.background = '';
     }
 }
 
@@ -331,18 +325,14 @@ function handlePlayerStateChange(event) {
     const PlayerState = playerManager.PlayerState;
 
     if (state === PlayerState.CUED) {
-        document.getElementById('startstop-video').disabled = false;
-        document.getElementById('startstop-video').style.background = "green";
-
-        // Get track info from Plex player
-        const videoData = playerManager.getVideoData();
-        document.getElementById('video-title').textContent = videoData.title;
+        document.getElementById('startstop-song').disabled = false;
+        document.getElementById('startstop-song').style.background = "green";
 
         // Wait for duration to be available
         setTimeout(() => {
             const duration = playerManager.getDuration();
             if (duration) {
-                document.getElementById('video-duration').textContent = formatDuration(duration);
+                document.getElementById('song-duration').textContent = formatDuration(duration);
             }
         }, 500);
 
@@ -350,24 +340,24 @@ function handlePlayerStateChange(event) {
         if (isIOS()) {
             playerManager.play();
         } else if (document.getElementById('autoplay').checked) {
-            document.getElementById('startstop-video').innerHTML = "Stop";
-            document.getElementById('startstop-video').classList.add('playing');
+            document.getElementById('startstop-song').innerHTML = "Stop";
+            document.getElementById('startstop-song').classList.add('playing');
             if (document.getElementById('randomplayback').checked) {
-                playVideoAtRandomStartTime();
+                playSongAtRandomStartTime();
             } else {
                 playerManager.play();
             }
         }
     } else if (state === PlayerState.PLAYING) {
-        document.getElementById('startstop-video').style.background = "red";
-        document.getElementById('startstop-video').innerHTML = "Stop";
-        document.getElementById('startstop-video').classList.add('playing');
+        document.getElementById('startstop-song').style.background = "red";
+        document.getElementById('startstop-song').innerHTML = "Stop";
+        document.getElementById('startstop-song').classList.add('playing');
     } else if (state === PlayerState.PAUSED || state === PlayerState.ENDED) {
-        document.getElementById('startstop-video').innerHTML = "Play";
-        document.getElementById('startstop-video').style.background = "green";
-        document.getElementById('startstop-video').classList.remove('playing');
+        document.getElementById('startstop-song').innerHTML = "Play";
+        document.getElementById('startstop-song').style.background = "green";
+        document.getElementById('startstop-song').classList.remove('playing');
     } else if (state === PlayerState.BUFFERING) {
-        document.getElementById('startstop-video').style.background = "orange";
+        document.getElementById('startstop-song').style.background = "orange";
     }
 }
 
@@ -379,12 +369,12 @@ function formatDuration(duration) {
 }
 
 // Add event listeners to Play and Stop buttons
-document.getElementById('startstop-video').addEventListener('click', function() {
+document.getElementById('startstop-song').addEventListener('click', function() {
     if (this.innerHTML == "Play") {
         this.innerHTML = "Stop";
         this.classList.add('playing');
         if (document.getElementById('randomplayback').checked == true) {
-            playVideoAtRandomStartTime();
+            playSongAtRandomStartTime();
         } else {
             playerManager.play();
         }
@@ -395,12 +385,12 @@ document.getElementById('startstop-video').addEventListener('click', function() 
     }
 });
 
-function playVideoAtRandomStartTime() {
+function playSongAtRandomStartTime() {
     playbackDuration = parseInt(document.getElementById('playback-duration').value, 10) || 30;
 
     playerManager.playAtRandomStartTime(playbackDuration, currentStartTime, () => {
-        document.getElementById('startstop-video').innerHTML = "Play";
-        document.getElementById('startstop-video').classList.remove('playing');
+        document.getElementById('startstop-song').innerHTML = "Play";
+        document.getElementById('startstop-song').classList.remove('playing');
     });
 }
 
@@ -408,7 +398,7 @@ function playVideoAtRandomStartTime() {
 document.getElementById('qr-reader').style.display = 'none'; // Initially hide the QR Scanner
 
 // Initially disable the play button until a song is scanned
-document.getElementById('startstop-video').disabled = true;
+document.getElementById('startstop-song').disabled = true;
 
 document.getElementById('startScanButton').addEventListener('click', function() {
     document.getElementById('cancelScanButton').style.display = 'block';
@@ -429,20 +419,23 @@ document.getElementById('debugButton').addEventListener('click', function() {
 
 document.getElementById('songinfo').addEventListener('click', function() {
     var cb = document.getElementById('songinfo');
-    var videoid = document.getElementById('videoid');
-    var videotitle = document.getElementById('videotitle');
-    var videoduration = document.getElementById('videoduration');
-    var plexdebug = document.getElementById('plexdebug');
+    var ratingKeyRow = document.getElementById('ratingkeyrow');
+    var artistRow = document.getElementById('artistrow');
+    var titleRow = document.getElementById('titlerow');
+    var yearRow = document.getElementById('yearrow');
+    var durationRow = document.getElementById('durationrow');
     if(cb.checked == true){
-        videoid.style.display = 'block';
-        videotitle.style.display = 'block';
-        videoduration.style.display = 'block';
-        plexdebug.style.display = 'block';
+        ratingKeyRow.style.display = 'block';
+        artistRow.style.display = 'block';
+        titleRow.style.display = 'block';
+        yearRow.style.display = 'block';
+        durationRow.style.display = 'block';
     } else {
-        videoid.style.display = 'none';
-        videotitle.style.display = 'none';
-        videoduration.style.display = 'none';
-        plexdebug.style.display = 'none';
+        ratingKeyRow.style.display = 'none';
+        artistRow.style.display = 'none';
+        titleRow.style.display = 'none';
+        yearRow.style.display = 'none';
+        durationRow.style.display = 'none';
     }
 });
 
