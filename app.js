@@ -364,7 +364,7 @@ function handlePlayerStateChange(event) {
 // Helper function to format duration from seconds to a more readable format
 function formatDuration(duration) {
     var minutes = Math.floor(duration / 60);
-    var seconds = duration % 60;
+    var seconds = Math.floor(duration % 60);
     return minutes + ":" + (seconds < 10 ? '0' : '') + seconds;
 }
 
