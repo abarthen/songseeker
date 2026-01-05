@@ -6,6 +6,7 @@ used by both plex-mapper and custom-game tools.
 """
 
 import json
+import re
 from pathlib import Path
 
 import requests
@@ -92,6 +93,46 @@ def get_remapped_title(rating_key: str, original_title: str) -> str:
     return entry.get("title", original_title) if entry else original_title
 
 
+# Patterns to strip from titles (version/format info that doesn't affect song identity)
+_TITLE_STRIP_PATTERNS = [
+    r"\s*\(Extended Version\)",
+    r"\s*\(\d{4}\s*-?\s*Remaster(?:ed)?\)",
+    r"\s*\(Remaster(?:ed)?\)",
+    r"\s*\(\d+(?:st|nd|rd|th) Anniversary Edition\)",
+    r"\s*\(Mono\)",
+    r"\s*\(Stereo\)",
+    r"\s*\(Reworked\)",
+    r"\s*\(Single Version\)",
+    r"\s*\(Soundtrack Version\)",
+    r"\s*\([^)]*Mix\)",
+]
+
+# Patterns that indicate problematic versions (should warn, not strip)
+_TITLE_WARNING_PATTERNS = [
+    (r"\(Instrumental\)", "Instrumental version"),
+    (r"\(Live[^)]*\)", "Live version"),
+]
+
+
+def check_title_warnings(title: str) -> list[str]:
+    """Check if title contains problematic version indicators. Returns list of warnings."""
+    warnings = []
+    for pattern, warning_msg in _TITLE_WARNING_PATTERNS:
+        if re.search(pattern, title, re.IGNORECASE):
+            warnings.append(warning_msg)
+    return warnings
+
+
+def normalize_title(title: str) -> str:
+    """Remove version/format suffixes from title that don't affect song identity."""
+    if not title:
+        return title
+    result = title
+    for pattern in _TITLE_STRIP_PATTERNS:
+        result = re.sub(pattern, "", result, flags=re.IGNORECASE)
+    return result.strip()
+
+
 def load_plex_config(config_path: Path) -> tuple[str, str]:
     """Load Plex server URL and token from config file."""
     if not config_path.exists():
@@ -115,7 +156,10 @@ def plex_request(url: str, token: str) -> dict:
 
 
 def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool = False) -> dict | None:
-    """Fetch track metadata directly by ratingKey."""
+    """Fetch track metadata directly by ratingKey.
+
+    Returns dict with track info including 'warnings' list if problematic version detected.
+    """
     try:
         url = f"{server_url}/library/metadata/{rating_key}"
         if debug:
@@ -138,15 +182,24 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
         remapped_artist = get_remapped_artist(rating_key, plex_artist)
         remapped_title = get_remapped_title(rating_key, plex_title)
 
+        # Check for problematic versions before normalizing
+        warnings = check_title_warnings(remapped_title)
+
+        # Normalize title (remove version suffixes)
+        normalized_title = normalize_title(remapped_title)
+
         result = {
             "ratingKey": track.get("ratingKey"),
-            "title": remapped_title,
+            "title": normalized_title,
             "artist": remapped_artist,
             "album": track.get("parentTitle"),
             "year": remapped_year,
             "duration": track.get("duration"),
             "partKey": parts.get("key"),
         }
+
+        if warnings:
+            result["warnings"] = warnings
 
         if debug:
             year_info = f"{result['year']}"
@@ -156,7 +209,9 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
             if remapped_artist != plex_artist:
                 artist_info += f" (remapped from {plex_artist})"
             title_info = result['title']
-            if remapped_title != plex_title:
+            if normalized_title != remapped_title:
+                title_info += f" (normalized from {remapped_title})"
+            elif remapped_title != plex_title:
                 title_info += f" (remapped from {plex_title})"
             print(f"  DEBUG: Found: {artist_info} - {title_info} ({year_info})")
 

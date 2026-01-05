@@ -121,6 +121,7 @@ The manifest uses this format:
     {
       "mapping": "de",
       "name": "Hitster Deutschland",
+      "songCount": 300,
       "matchRate": 100.0,
       "minDate": 1965,
       "maxDate": 2024
@@ -129,7 +130,7 @@ The manifest uses this format:
 }
 ```
 
-Each game object contains: mapping ID, display name, match rate (%), and year range. The website displays all these fields for each game edition.
+Each game object contains: mapping ID, display name, song count, match rate (%), and year range. The website displays all these fields for each game edition.
 
 ## Download Folder Structure
 
@@ -211,6 +212,29 @@ Some songs in Plex may have incorrect years (e.g., from best-of/compilation albu
 Only properties present in `replaceData` are overridden - omit properties you don't want to change.
 
 Debug output shows `(remapped from XXXX)` when values are overridden.
+
+## Title Normalization
+
+Song titles are automatically cleaned to remove version/format suffixes that don't affect the song's identity:
+
+**Automatically removed:**
+- `(Extended Version)`, `(Single Version)`, `(Soundtrack Version)`
+- `(Remaster)`, `(2015 - Remaster)`, `(Remastered)`
+- `(50th Anniversary Edition)` and similar
+- `(Mono)`, `(Stereo)`
+- `(Reworked)`
+- `({something} Mix)` - e.g., "(Radio Mix)", "(Club Mix)"
+
+**Kept (part of song identity):**
+- `(feat. Artist)` - featuring credits
+- `(From "Movie")` - source attribution
+- Subtitles like `(Thunderdome)`, `(We All)`
+
+**Warning only (not removed):**
+- `(Instrumental)` - shows ⚠️ warning, song may not be suitable for the game
+- `(Live at ...)` - shows ⚠️ warning, live versions often have different arrangements
+
+Debug output shows `(normalized from XXXX)` when titles are cleaned.
 
 ---
 

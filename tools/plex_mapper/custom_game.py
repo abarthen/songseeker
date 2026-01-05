@@ -132,6 +132,7 @@ def update_manifest(manifest_path: Path, mapping_name: str, game_name: str, trac
     game_obj = {
         "mapping": mapping_name,
         "name": game_name,
+        "songCount": len(tracks),
         "matchRate": 100.0,
     }
     if min_date is not None:
@@ -482,7 +483,10 @@ def main():
             # Use rating key as both key and ratingKey value
             new_mapping[key] = track
             new_tracks.append(track)
-            print(f"OK ({track['artist']} - {track['title']})")
+            status = f"OK ({track['artist']} - {track['title']})"
+            if track.get("warnings"):
+                status += f" ⚠️ {', '.join(track['warnings'])}"
+            print(status)
         else:
             print("SKIPPED (not found)")
             skipped += 1
@@ -528,6 +532,9 @@ def main():
         generate_cards_pdf(all_tracks if extend_mode else new_tracks, args.cards_pdf, args.icon, game_name=game_name)
         cards_summary = f"\n  Cards PDF: {args.cards_pdf}"
 
+    # Count tracks with warnings
+    warned_tracks = [t for t in new_tracks if t.get("warnings")]
+
     # Summary
     print(f"\n{'=' * 40}")
     print(f"Custom game {'extended' if extend_mode else 'created'} successfully!")
@@ -540,6 +547,8 @@ def main():
         print(f"  Tracks: {len(new_tracks)}")
     if skipped > 0:
         print(f"  Skipped: {skipped} (invalid keys)")
+    if warned_tracks:
+        print(f"  ⚠️ Warnings: {len(warned_tracks)} tracks (Instrumental/Live versions)")
     print(f"  Mapping: {mapping_path}")
     print(cards_summary)
     print("=" * 40 + "\n")

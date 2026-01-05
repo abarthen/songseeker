@@ -329,6 +329,7 @@ def update_manifest(output_dir: Path, playlists_dir: Path = None) -> None:
         game_obj = {
             "mapping": mapping_id,
             "name": game_names.get(mapping_id, f"Unknown ({mapping_id})"),
+            "songCount": total,
             "matchRate": match_rate,
         }
         if min_date is not None:

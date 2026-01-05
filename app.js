@@ -13,6 +13,7 @@ let plexConfig = { serverUrl: '', token: '' }; // Loaded from plex-config.json
 let plexGames = {}; // Game names from manifest (mapping -> name)
 let plexMatchRates = {}; // Match rates from manifest (mapping -> rate)
 let plexDateRanges = {}; // Date ranges from manifest (mapping -> {min, max})
+let plexSongCounts = {}; // Song counts from manifest (mapping -> count)
 
 // Function to detect iOS devices
 function isIOS() {
@@ -47,17 +48,22 @@ async function loadPlexMappings() {
             plexGames = {};
             plexMatchRates = {};
             plexDateRanges = {};
+            plexSongCounts = {};
             games.forEach(g => {
                 plexGames[g.mapping] = g.name;
                 plexMatchRates[g.mapping] = g.matchRate;
                 if (g.minDate && g.maxDate) {
                     plexDateRanges[g.mapping] = { min: g.minDate, max: g.maxDate };
                 }
+                if (g.songCount) {
+                    plexSongCounts[g.mapping] = g.songCount;
+                }
             });
             console.log('Loaded manifest:', availableLangs);
             console.log('Loaded games:', plexGames);
             console.log('Loaded match rates:', plexMatchRates);
             console.log('Loaded date ranges:', plexDateRanges);
+            console.log('Loaded song counts:', plexSongCounts);
         }
     } catch (e) {
         console.log('No manifest found, skipping mapping load');
@@ -496,14 +502,16 @@ function updateGameEditionsList() {
         return;
     }
 
-    // Build a simple list of game names with date ranges and match rates
+    // Build a simple list of game names with song counts, date ranges, and match rates
     const listHtml = '<ul style="margin: 0.5rem 0; padding-left: 1.5rem; text-align: left;">' +
         gameEntries.map(([lang, name]) => {
+            const count = plexSongCounts[lang];
+            const countStr = count ? ` ${count} songs` : '';
             const range = plexDateRanges[lang];
             const rangeStr = range ? ` (${range.min}-${range.max})` : '';
             const rate = plexMatchRates[lang];
             const rateStr = rate !== undefined ? ` ${rate}%` : '';
-            return `<li>${name}${rangeStr}${rateStr}</li>`;
+            return `<li>${name}${countStr}${rangeStr}${rateStr}</li>`;
         }).join('') +
         '</ul>';
     listEl.innerHTML = listHtml;
