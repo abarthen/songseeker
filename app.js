@@ -6,6 +6,7 @@ let playbackDuration = 30; // Default playback duration
 let qrScanner;
 let lastDecodedText = ""; // Store the last decoded text
 let currentStartTime = 0;
+let autoShowSonginfoTimer = null; // Timer for auto-showing song info
 
 // Plex integration
 let plexMappingCache = {}; // In-memory cache for Plex mappings
@@ -194,6 +195,13 @@ async function handleScannedLink(decodedText) {
         clearTimeout(playbackTimer);
         playbackTimer = null;
     }
+    // Clear auto-show timer and hide song info on new scan
+    if (autoShowSonginfoTimer) {
+        clearTimeout(autoShowSonginfoTimer);
+        autoShowSonginfoTimer = null;
+    }
+    hideSongInfo();
+
     playerManager.stop();
     document.getElementById('startstop-song').innerHTML = "Play";
     document.getElementById('startstop-song').style.background = "";
@@ -355,6 +363,7 @@ function handlePlayerStateChange(event) {
         // Handle autoplay
         if (isIOS()) {
             playerManager.play();
+            startAutoShowTimer();
         } else if (document.getElementById('autoplay').checked) {
             document.getElementById('startstop-song').innerHTML = "Stop";
             document.getElementById('startstop-song').classList.add('playing');
@@ -363,6 +372,7 @@ function handlePlayerStateChange(event) {
             } else {
                 playerManager.play();
             }
+            startAutoShowTimer();
         }
     } else if (state === PlayerState.PLAYING) {
         document.getElementById('startstop-song').style.background = "red";
@@ -394,6 +404,7 @@ document.getElementById('startstop-song').addEventListener('click', function() {
         } else {
             playerManager.play();
         }
+        startAutoShowTimer();
     } else {
         this.innerHTML = "Play";
         this.classList.remove('playing');
@@ -433,26 +444,53 @@ document.getElementById('debugButton').addEventListener('click', function() {
     handleScannedLink("https://www.hitstergame.com/de-aaaa0012/237");
 });
 
-document.getElementById('songinfo').addEventListener('click', function() {
-    var cb = document.getElementById('songinfo');
-    var ratingKeyRow = document.getElementById('ratingkeyrow');
-    var artistRow = document.getElementById('artistrow');
-    var titleRow = document.getElementById('titlerow');
-    var yearRow = document.getElementById('yearrow');
-    var durationRow = document.getElementById('durationrow');
-    if(cb.checked == true){
-        ratingKeyRow.style.display = 'block';
-        artistRow.style.display = 'block';
-        titleRow.style.display = 'block';
-        yearRow.style.display = 'block';
-        durationRow.style.display = 'block';
-    } else {
-        ratingKeyRow.style.display = 'none';
-        artistRow.style.display = 'none';
-        titleRow.style.display = 'none';
-        yearRow.style.display = 'none';
-        durationRow.style.display = 'none';
+// Track whether song info should always be shown
+let songinfoAlwaysVisible = false;
+
+function showSongInfo() {
+    document.getElementById('ratingkeyrow').style.display = 'block';
+    document.getElementById('artistrow').style.display = 'block';
+    document.getElementById('titlerow').style.display = 'block';
+    document.getElementById('yearrow').style.display = 'block';
+    document.getElementById('durationrow').style.display = 'block';
+}
+
+function hideSongInfo() {
+    if (!songinfoAlwaysVisible) {
+        document.getElementById('ratingkeyrow').style.display = 'none';
+        document.getElementById('artistrow').style.display = 'none';
+        document.getElementById('titlerow').style.display = 'none';
+        document.getElementById('yearrow').style.display = 'none';
+        document.getElementById('durationrow').style.display = 'none';
     }
+}
+
+function updateAutoShowCheckboxState() {
+    var autoShowCheckbox = document.getElementById('autoShowSonginfo');
+    autoShowCheckbox.disabled = songinfoAlwaysVisible;
+}
+
+function startAutoShowTimer() {
+    if (document.getElementById('autoShowSonginfo').checked && !songinfoAlwaysVisible) {
+        if (autoShowSonginfoTimer) {
+            clearTimeout(autoShowSonginfoTimer);
+        }
+        autoShowSonginfoTimer = setTimeout(function() {
+            showSongInfo();
+        }, 5000);
+    }
+}
+
+document.getElementById('toggleSonginfoButton').addEventListener('click', function() {
+    songinfoAlwaysVisible = !songinfoAlwaysVisible;
+    if (songinfoAlwaysVisible) {
+        showSongInfo();
+        this.textContent = 'Hide Song Info';
+    } else {
+        hideSongInfo();
+        this.textContent = 'Show Song Info';
+    }
+    updateAutoShowCheckboxState();
 });
 
 document.getElementById('cancelScanButton').addEventListener('click', function() {
@@ -461,13 +499,14 @@ document.getElementById('cancelScanButton').addEventListener('click', function()
     document.getElementById('cancelScanButton').style.display = 'none'; // Hide the cancel-button
 });
 
-document.getElementById('cb_settings').addEventListener('click', function() {
-    var cb = document.getElementById('cb_settings');
-    if (cb.checked == true) {
-        document.getElementById('settings_div').style.display = 'block';
-    }
-    else {
-        document.getElementById('settings_div').style.display = 'none';
+document.getElementById('toggleSettingsButton').addEventListener('click', function() {
+    var settingsDiv = document.getElementById('settings_div');
+    if (settingsDiv.style.display === 'none' || settingsDiv.style.display === '') {
+        settingsDiv.style.display = 'block';
+        this.textContent = 'Hide Settings';
+    } else {
+        settingsDiv.style.display = 'none';
+        this.textContent = 'Show Settings';
     }
 });
 
@@ -478,6 +517,11 @@ document.getElementById('randomplayback').addEventListener('click', function() {
 
 document.getElementById('autoplay').addEventListener('click', function() {
     document.cookie = "autoplayChecked=" + this.checked + ";max-age=2592000"; //30 Tage
+    listCookies();
+});
+
+document.getElementById('autoShowSonginfo').addEventListener('click', function() {
+    document.cookie = "autoShowSonginfoChecked=" + this.checked + ";max-age=2592000"; //30 Tage
     listCookies();
 });
 
@@ -548,6 +592,10 @@ function getCookies() {
     if (getCookieValue("autoplayChecked") != "") {
         isTrueSet = (getCookieValue("autoplayChecked") === 'true');
         document.getElementById('autoplay').checked = isTrueSet;
+    }
+    if (getCookieValue("autoShowSonginfoChecked") != "") {
+        isTrueSet = (getCookieValue("autoShowSonginfoChecked") === 'true');
+        document.getElementById('autoShowSonginfo').checked = isTrueSet;
     }
     listCookies();
 }

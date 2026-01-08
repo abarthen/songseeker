@@ -223,15 +223,21 @@ input[type="number"] {
   border: none;
 }
 
+input[type="checkbox"]:disabled + label {
+  opacity: 0.5;
+}
+
 label {
   font-size: 1.1rem;
   color: #fff;
   margin: 0 0.4rem;
 }
 
-#show_hide_settings {
-  display: flex;
-  flex-direction: row;
+#toggleSettingsButton,
+#toggleSonginfoButton {
+  font-size: 0.9rem;
+  padding: 0.4rem 1rem;
+  margin: 0.5rem;
 }
 
 #playback-duration {
