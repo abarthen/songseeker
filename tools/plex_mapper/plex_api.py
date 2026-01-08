@@ -36,30 +36,56 @@ def normalize_for_comparison(text: str) -> str:
 
 
 def resolve_plex_credentials(args, config_attr: str = "config") -> None:
-    """Load Plex credentials from config file if not provided in args.
+    """Load Plex credentials and file paths from config file.
 
-    Modifies args in-place to set server and token from config file.
-    Exits with error if credentials cannot be resolved.
+    Modifies args in-place to set:
+    - server: Plex server URL
+    - token: Plex authentication token
+    - files_path: Base directory for all mapping files
+    - remapper_path: Full path to remapper JSON
+    - manifest_path: Full path to manifest JSON
 
     Args:
         args: Parsed arguments object with server, token, and config attributes
         config_attr: Name of the config path attribute on args (default: "config")
     """
-    if not args.server or not args.token:
-        config_value = getattr(args, config_attr, None)
-        config_path = Path(config_value) if config_value else Path(__file__).parent.parent.parent / "plex-config.json"
-        config_server, config_token = load_plex_config(config_path)
+    config_value = getattr(args, config_attr, None)
+    config_path = Path(config_value) if config_value else Path(__file__).parent.parent.parent / "plex-config.json"
+    config = load_plex_config(config_path)
 
-        if not args.server:
-            args.server = config_server
-        if not args.token:
-            args.token = config_token
+    # Set server/token from config if not provided
+    if not getattr(args, "server", None):
+        args.server = config.get("serverUrl")
+    if not getattr(args, "token", None):
+        args.token = config.get("token")
+
+    # Set file paths from config
+    args.files_path = config.get("files_path")
+    args.remapper_path = config.get("remapper_path")
+    args.manifest_path = config.get("manifest_path")
 
     # Validate we have required values
     if not args.server or not args.token:
         print("Error: Plex server and token are required.")
         print("Either provide --server and --token, or create plex-config.json")
         sys.exit(1)
+
+    if not args.files_path:
+        print("Error: files-path is required in plex-config.json")
+        sys.exit(1)
+
+
+def resolve_path(args, filename: str) -> Path:
+    """Resolve a filename to full path using files_path from config.
+
+    Args:
+        args: Parsed arguments with files_path attribute
+        filename: Filename (not path) to resolve
+
+    Returns:
+        Full Path object
+    """
+    return args.files_path / filename
 
 
 def test_plex_connection(server_url: str, token: str, test_search: bool = False) -> dict:
@@ -203,8 +229,9 @@ def get_remapped_title(rating_key: str, original_title: str) -> str:
 def get_alternative_ratingkey(rating_key: str) -> str | None:
     """Get alternative ratingKey from remapper's replaceData if one exists.
 
-    Used when a track was replaced in Plex (new ratingKey) but old cards still exist.
-    The alternative key points to the current track in Plex.
+    Used to support old printed cards that have a different ratingKey.
+    The alternative key is added to alternativeKeys so the website can look up
+    tracks by either the current or old ratingKey.
     """
     if not _track_remapper_loaded:
         load_track_remapper()
@@ -254,17 +281,40 @@ def normalize_title(title: str) -> str:
     return result.strip()
 
 
-def load_plex_config(config_path: Path) -> tuple[str, str]:
-    """Load Plex server URL and token from config file."""
+def load_plex_config(config_path: Path) -> dict:
+    """Load full config from plex-config.json.
+
+    Returns dict with keys: serverUrl, token, files_path, remapper_path, manifest_path
+    """
     if not config_path.exists():
-        return None, None
+        return {}
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-        return config.get("serverUrl"), config.get("token")
+
+        result = {
+            "serverUrl": config.get("serverUrl"),
+            "token": config.get("token"),
+        }
+
+        # Resolve file paths
+        files_path = config.get("files-path")
+        if files_path:
+            files_path = Path(files_path)
+            result["files_path"] = files_path
+
+            remapper_filename = config.get("remapper-filename")
+            if remapper_filename:
+                result["remapper_path"] = files_path / remapper_filename
+
+            manifest_filename = config.get("manifest-filename")
+            if manifest_filename:
+                result["manifest_path"] = files_path / manifest_filename
+
+        return result
     except (json.JSONDecodeError, IOError) as e:
         print(f"Warning: Could not read config file: {e}")
-        return None, None
+        return {}
 
 
 def plex_request(url: str, token: str) -> dict:
@@ -298,23 +348,18 @@ def extract_guids(track: dict) -> tuple[str | None, str | None]:
 def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool = False) -> dict | None:
     """Fetch track metadata directly by ratingKey.
 
-    If the remapper has an alternative ratingKey (replaceData.ratingKey), fetches from that
-    instead but keeps the original ratingKey in the result, adding the alternative to
-    alternativeKeys array. This allows old printed cards to work after tracks are replaced.
+    If the remapper has an alternative ratingKey (replaceData.ratingKey), it will be added
+    to alternativeKeys array so old cards with that key still work on the website.
 
     Returns dict with track info including 'warnings' list if problematic version detected.
     """
-    # Check if there's an alternative ratingKey in the remapper
+    # Check if there's an alternative ratingKey in the remapper (for old cards)
     alternative_key = get_alternative_ratingkey(rating_key)
-    fetch_key = alternative_key if alternative_key else rating_key
 
     try:
-        url = f"{server_url}/library/metadata/{fetch_key}"
+        url = f"{server_url}/library/metadata/{rating_key}"
         if debug:
-            if alternative_key:
-                print(f"  DEBUG: Fetching: {url} (alternative for {rating_key})")
-            else:
-                print(f"  DEBUG: Fetching: {url}")
+            print(f"  DEBUG: Fetching: {url}")
 
         response = plex_request(url, token)
         metadata = response.get("MediaContainer", {}).get("Metadata", [])
@@ -343,7 +388,6 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
         # Extract stable identifiers
         plex_guid, mbid = extract_guids(track)
 
-        # Keep the ORIGINAL ratingKey (for printed cards), not the fetch key
         result = {
             "ratingKey": rating_key,
             "title": normalized_title,
@@ -354,7 +398,7 @@ def fetch_plex_track(server_url: str, token: str, rating_key: str, debug: bool =
             "partKey": parts.get("key"),
         }
 
-        # Add alternativeKeys if we used a different key to fetch
+        # Add alternativeKeys from remapper (for old cards that have different ratingKey)
         if alternative_key:
             result["alternativeKeys"] = [alternative_key]
 

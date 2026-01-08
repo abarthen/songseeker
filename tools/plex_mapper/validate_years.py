@@ -5,10 +5,14 @@ Year Validation Tool for SongSeeker Plex Mappings
 Validates the year values in plex-mapping-*.json files against MusicBrainz database.
 Reports tracks where the year in Plex differs from MusicBrainz's first release date.
 
+All file parameters are filenames resolved from files-path in plex-config.json.
+
 Usage:
-    poetry run validate-years --mapping ../plex-mapping-de-at-2026.json
-    poetry run validate-years --mapping ../plex-mapping-de-at-2026.json --tolerance 1
-    poetry run validate-years --mapping ../plex-mapping-de-at-2026.json --output report.json
+    poetry run validate-years --mapping plex-mapping-de.json
+    poetry run validate-years --mapping plex-mapping-de.json --tolerance 1
+    poetry run validate-years --mapping plex-mapping-de.json --output report.json
+    poetry run validate-years --report report.json
+    poetry run validate-years --apply report.json
 """
 
 import argparse
@@ -20,7 +24,7 @@ from urllib.parse import quote
 
 import requests
 
-from .plex_api import normalize_for_comparison
+from .plex_api import normalize_for_comparison, resolve_path, resolve_plex_credentials
 
 
 MUSICBRAINZ_API = "https://musicbrainz.org/ws/2"
@@ -358,15 +362,15 @@ def parse_args():
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--mapping", "-m",
-        help="Path to plex-mapping-*.json file (initial full scan)"
+        help="Mapping filename (e.g., plex-mapping-de.json)"
     )
     input_group.add_argument(
         "--report", "-r",
-        help="Path to previous report.json (re-check only previously flagged tracks)"
+        help="Previous report filename (re-check only previously flagged tracks)"
     )
     input_group.add_argument(
         "--apply", "-a",
-        help="Apply report to plex-remapper.json (updates year in replaceData)"
+        help="Report filename to apply to plex-remapper.json (updates year in replaceData)"
     )
     parser.add_argument(
         "--tolerance", "-t", type=int, default=0,
@@ -378,7 +382,7 @@ def parse_args():
     )
     parser.add_argument(
         "--output", "-o",
-        help="Output JSON file for discrepancy report"
+        help="Output filename for discrepancy report"
     )
     parser.add_argument(
         "--debug", "-d", action="store_true",
@@ -389,8 +393,8 @@ def parse_args():
         help="Only check tracks where artist or title contains this string (case-insensitive)"
     )
     parser.add_argument(
-        "--remapper",
-        help="Path to plex-remapper.json (required with --apply)"
+        "--config",
+        help="Path to plex-config.json"
     )
     return parser.parse_args()
 
@@ -414,14 +418,11 @@ def load_tracks_from_report(report_path: Path) -> dict:
     return mapping
 
 
-def apply_report_to_remapper(report_path: Path, remapper_path: Path = None, debug: bool = False) -> None:
+def apply_report_to_remapper(report_path: Path, remapper_path: Path, debug: bool = False) -> None:
     """
     Apply year corrections from a report to plex-remapper.json.
     Creates or updates entries based on ratingKey.
     """
-    if remapper_path is None:
-        remapper_path = report_path.parent / "plex-remapper.json"
-
     # Load report
     with open(report_path, "r", encoding="utf-8") as f:
         report = json.load(f)
@@ -502,22 +503,21 @@ def apply_report_to_remapper(report_path: Path, remapper_path: Path = None, debu
 def main():
     args = parse_args()
 
+    # Load config for file paths (no Plex connection needed for this tool)
+    resolve_plex_credentials(args)
+
     # Handle --apply mode separately
     if args.apply:
-        if not args.remapper:
-            print("Error: --remapper is required with --apply", file=sys.stderr)
-            sys.exit(1)
-        apply_path = Path(args.apply)
+        apply_path = resolve_path(args, args.apply)
         if not apply_path.exists():
             print(f"Error: Report file not found: {apply_path}", file=sys.stderr)
             sys.exit(1)
-        remapper_path = Path(args.remapper)
-        apply_report_to_remapper(apply_path, remapper_path=remapper_path, debug=args.debug)
+        apply_report_to_remapper(apply_path, remapper_path=args.remapper_path, debug=args.debug)
         sys.exit(0)
 
     # Load tracks from either mapping or previous report
     if args.mapping:
-        input_path = Path(args.mapping)
+        input_path = resolve_path(args, args.mapping)
         if not input_path.exists():
             print(f"Error: Mapping file not found: {input_path}", file=sys.stderr)
             sys.exit(1)
@@ -525,7 +525,7 @@ def main():
             mapping = json.load(f)
         print(f"Loaded {len(mapping)} tracks from mapping file")
     else:
-        input_path = Path(args.report)
+        input_path = resolve_path(args, args.report)
         if not input_path.exists():
             print(f"Error: Report file not found: {input_path}", file=sys.stderr)
             sys.exit(1)
@@ -543,10 +543,10 @@ def main():
     # Determine output path: explicit --output, or same as --report if used (but not with filter)
     output_path = None
     if args.output:
-        output_path = Path(args.output)
+        output_path = resolve_path(args, args.output)
     elif args.report and not args.filter:
         # Default to overwriting the report file when re-checking (but not when filtering)
-        output_path = Path(args.report)
+        output_path = resolve_path(args, args.report)
     elif args.report and args.filter:
         print("\nNote: Not auto-saving when using --filter with --report (use --output to save)")
         output_path = None

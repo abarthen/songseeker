@@ -6,14 +6,15 @@ Creates custom Hitster-style games from a list of Plex rating keys.
 Generates mapping files, updates the manifest, and creates printable PDF cards.
 
 Usage:
-    poetry run custom-game --name "80s Classics" --mapping "80s-classics" --keys "12345,67890" --cards-pdf cards.pdf
-    poetry run custom-game --name "Party Mix" --mapping "party-mix" --keys rating-keys.txt --cards-pdf cards.pdf
+    poetry run custom-game --name "80s Classics" --mapping "80s-classics" --keys "12345,67890"
+    poetry run custom-game --name "Party Mix" --playlist "My Party Playlist"
 """
 
 import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import textwrap
 from io import BytesIO
@@ -48,10 +49,10 @@ def parse_args():
         "--mapping", "-m", help="Mapping identifier (e.g., '80s-classics')"
     )
     parser.add_argument(
-        "--extend", "-e", help="Path to existing mapping JSON to extend (skips existing songs)"
+        "--extend", "-e", help="Existing mapping filename to extend (skips existing songs)"
     )
     parser.add_argument(
-        "--keys", "-k", help="Comma-separated rating keys OR path to file with one key per line"
+        "--keys", "-k", help="Comma-separated rating keys OR filename with one key per line"
     )
     parser.add_argument(
         "--playlist", "-P", help="Plex playlist name or ratingKey to use as source"
@@ -60,13 +61,7 @@ def parse_args():
         "--list-playlists", "-L", action="store_true", help="List available Plex playlists and exit"
     )
     parser.add_argument(
-        "--output", "-o", help="Full output path for mapping JSON (overrides --output-dir)"
-    )
-    parser.add_argument(
-        "--output-dir", default=".", help="Directory to save mapping JSON (default: current directory)"
-    )
-    parser.add_argument(
-        "--cards-pdf", "-p", help="Output PDF path for generated cards"
+        "--output", "-o", help="Output mapping filename (default: plex-mapping-de-{mapping}.json)"
     )
     parser.add_argument(
         "--server", "-s", help="Plex server URL (default: from plex-config.json)"
@@ -83,20 +78,25 @@ def parse_args():
     parser.add_argument(
         "--debug", "-d", action="store_true", help="Enable debug output"
     )
-    parser.add_argument(
-        "--remapper", required=True, help="Path to plex-remapper.json (for metadata overrides)"
-    )
-    parser.add_argument(
-        "--manifest", help="Path to plex-manifest.json (default: same directory as output)"
-    )
 
     return parser.parse_args()
 
 
-def parse_keys(keys_arg: str) -> list[str]:
-    """Parse rating keys from argument (file path or comma-separated string)."""
-    keys_path = Path(keys_arg)
+def slugify(name: str) -> str:
+    """Convert a name to a slug for filenames (lowercase, hyphens)."""
+    # Lowercase and replace spaces/underscores with hyphens
+    slug = name.lower().replace(" ", "-").replace("_", "-")
+    # Remove any characters that aren't alphanumeric or hyphens
+    slug = re.sub(r"[^a-z0-9-]", "", slug)
+    # Collapse multiple hyphens
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-")
 
+
+def parse_keys(keys_arg: str, files_path: Path) -> list[str]:
+    """Parse rating keys from argument (filename or comma-separated string)."""
+    # Try as filename in files_path first
+    keys_path = files_path / keys_arg
     if keys_path.exists() and keys_path.is_file():
         # Read from file (one key per line)
         with open(keys_path, "r", encoding="utf-8") as f:
@@ -332,9 +332,8 @@ def main():
     # Resolve Plex credentials from config file if not provided
     resolve_plex_credentials(args)
 
-    # Load track remapper (for overriding years, artists, titles)
-    remapper_path = Path(args.remapper) if args.remapper else None
-    load_track_remapper(remapper_path)
+    # Load track remapper from config path
+    load_track_remapper(args.remapper_path)
 
     # Normalize server URL
     server_url = args.server.rstrip("/")
@@ -357,13 +356,12 @@ def main():
     existing_mapping = {}
     existing_tracks = []
     extend_mode = False
-    mapping_path_override = None
 
     if args.extend:
         extend_mode = True
-        extend_path = Path(args.extend)
+        extend_path = args.files_path / args.extend
         if not extend_path.exists():
-            print(f"Error: File not found: {args.extend}")
+            print(f"Error: File not found: {extend_path}")
             sys.exit(1)
 
         # Load existing mapping
@@ -380,11 +378,9 @@ def main():
             sys.exit(1)
 
         # Get game name from manifest or --name
-        output_dir = extend_path.parent
-        manifest_path = output_dir / "plex-manifest.json"
         game_name = args.name
-        if not game_name and manifest_path.exists():
-            with open(manifest_path, "r", encoding="utf-8") as f:
+        if not game_name and args.manifest_path and args.manifest_path.exists():
+            with open(args.manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
             game_name = manifest.get("games", {}).get(mapping_id)
 
@@ -405,33 +401,22 @@ def main():
 
         game_name = args.name
 
-        # Determine output path and mapping_id
+        # Determine mapping_id from --output or --mapping
         if args.output:
-            # Full path provided - extract mapping_id from filename
-            output_path = Path(args.output)
-            output_dir = output_path.parent
-            filename = output_path.name
+            filename = args.output
             if filename.startswith("plex-mapping-") and filename.endswith(".json"):
                 mapping_id = filename[len("plex-mapping-"):-len(".json")]
             elif filename.endswith(".json"):
-                # Use filename without .json as mapping_id
                 mapping_id = filename[:-len(".json")]
             else:
                 mapping_id = filename
-            # Will use output_path directly instead of constructing from output_dir
-            mapping_path_override = output_path
         else:
             # Need --mapping when not using --output
             if not args.mapping:
-                print("Error: --mapping is required (or use --output for full path)")
+                print("Error: --mapping is required (or use --output)")
                 sys.exit(1)
             mapping_id = args.mapping if args.mapping.startswith("de-") else f"de-{args.mapping}"
-            output_dir = Path(args.output_dir)
-            mapping_path_override = None
 
-    if not args.cards_pdf:
-        print("Error: --cards-pdf is required")
-        sys.exit(1)
     if not args.keys and not args.playlist:
         print("Error: Either --keys or --playlist is required")
         sys.exit(1)
@@ -448,7 +433,7 @@ def main():
         print(f"Retrieved {len(keys)} rating keys from playlist")
     else:
         # Parse rating keys from --keys argument
-        keys = parse_keys(args.keys)
+        keys = parse_keys(args.keys, args.files_path)
         if not keys:
             print("Error: No rating keys provided")
             sys.exit(1)
@@ -499,13 +484,12 @@ def main():
     all_tracks = existing_tracks + new_tracks
 
     # Write mapping file
-    output_dir.mkdir(parents=True, exist_ok=True)
     if extend_mode:
         mapping_path = extend_path
-    elif mapping_path_override:
-        mapping_path = mapping_path_override
+    elif args.output:
+        mapping_path = args.files_path / args.output
     else:
-        mapping_path = output_dir / f"plex-mapping-{mapping_id}.json"
+        mapping_path = args.files_path / f"plex-mapping-{mapping_id}.json"
 
     with open(mapping_path, "w", encoding="utf-8") as f:
         json.dump(final_mapping, f, indent=2)
@@ -513,16 +497,16 @@ def main():
     print(f"\nMapping saved to: {mapping_path}")
 
     # Update manifest
-    manifest_path = Path(args.manifest) if args.manifest else output_dir / "plex-manifest.json"
-    update_manifest(manifest_path, mapping_id, game_name, all_tracks)
-    print(f"Manifest updated: {manifest_path}")
+    update_manifest(args.manifest_path, mapping_id, game_name, all_tracks)
+    print(f"Manifest updated: {args.manifest_path}")
 
-    # Generate cards PDFs
+    # Generate cards PDFs (filename derived from game name)
+    cards_pdf_filename = f"{slugify(game_name)}-cards.pdf"
+    cards_pdf_path = args.files_path / cards_pdf_filename
     if extend_mode and new_tracks:
         # Generate both full and new-only PDFs
-        base_pdf = Path(args.cards_pdf)
-        full_pdf = base_pdf.with_stem(f"{base_pdf.stem}-full")
-        new_pdf = base_pdf.with_stem(f"{base_pdf.stem}-new")
+        full_pdf = cards_pdf_path.with_stem(f"{cards_pdf_path.stem}-full")
+        new_pdf = cards_pdf_path.with_stem(f"{cards_pdf_path.stem}-new")
 
         print(f"\nGenerating full PDF ({len(all_tracks)} cards): {full_pdf}")
         generate_cards_pdf(all_tracks, str(full_pdf), args.icon, game_name=game_name)
@@ -532,9 +516,9 @@ def main():
 
         cards_summary = f"\n  Full PDF: {full_pdf}\n  New-only PDF: {new_pdf}"
     else:
-        print(f"\nGenerating cards PDF: {args.cards_pdf}")
-        generate_cards_pdf(all_tracks if extend_mode else new_tracks, args.cards_pdf, args.icon, game_name=game_name)
-        cards_summary = f"\n  Cards PDF: {args.cards_pdf}"
+        print(f"\nGenerating cards PDF: {cards_pdf_path}")
+        generate_cards_pdf(all_tracks if extend_mode else new_tracks, str(cards_pdf_path), args.icon, game_name=game_name)
+        cards_summary = f"\n  Cards PDF: {cards_pdf_path}"
 
     # Count tracks with warnings
     warned_tracks = [t for t in new_tracks if t.get("warnings")]

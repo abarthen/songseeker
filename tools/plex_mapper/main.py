@@ -50,10 +50,10 @@ def parse_args():
         "--config", help="Path to plex-config.json (default: ../plex-config.json)"
     )
     parser.add_argument(
-        "--csv", "-c", required=True, help="Path to Hitster CSV file"
+        "--csv", "-c", required=True, help="Hitster CSV filename (in files-path from config)"
     )
     parser.add_argument(
-        "--output", "-o", help="Output JSON file path (default: plex-mapping-{lang}_{timestamp}.json)"
+        "--output", "-o", help="Output JSON filename (default: plex-mapping-{lang}.json)"
     )
     parser.add_argument(
         "--download", "-D", action="store_true", help="Download missing songs from YouTube"
@@ -82,21 +82,6 @@ def parse_args():
     parser.add_argument(
         "--year-tolerance", "-y", type=int, default=0, help="Accept year matches within ± N years (default: 0 = exact match only)"
     )
-    parser.add_argument(
-        "--check", "-C", action="store_true", help="Check that all rating keys in existing mapping still exist in Plex"
-    )
-    parser.add_argument(
-        "--fix", "-F", action="store_true", help="With --check: remove missing tracks from mapping so they can be re-matched"
-    )
-    parser.add_argument(
-        "--enrich", "-E", action="store_true", help="Re-fetch metadata for existing mappings (updates guid/mbid, applies remapper)"
-    )
-    parser.add_argument(
-        "--remapper", required=True, help="Path to plex-remapper.json (for metadata overrides)"
-    )
-    parser.add_argument(
-        "--manifest", help="Path to plex-manifest.json (default: same directory as output)"
-    )
 
     args = parser.parse_args()
 
@@ -105,12 +90,7 @@ def parse_args():
         print("Error: --rating-key requires --id to specify which card to update")
         sys.exit(1)
 
-    # Validate --fix requires --check
-    if args.fix and not args.check:
-        print("Error: --fix requires --check")
-        sys.exit(1)
-
-    # Load config file if server/token not provided
+    # Load config file and resolve paths
     resolve_plex_credentials(args)
 
     return args
@@ -471,186 +451,28 @@ def download_song(url: str, artist: str, title: str, year: str, output_dir: Path
                 pass
 
 
-def check_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False, fix: bool = False) -> None:
-    """Check that all rating keys in a mapping file still exist in Plex."""
-    if not mapping_path.exists():
-        print(f"Error: Mapping file not found: {mapping_path}")
-        sys.exit(1)
-
-    with open(mapping_path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
-
-    # Get all entries with rating keys
-    entries_with_keys = [(card_id, entry) for card_id, entry in mapping.items()
-                         if entry is not None and entry.get("ratingKey")]
-
-    print(f"Checking {len(entries_with_keys)} tracks in {mapping_path.name}...\n")
-
-    missing = []
-    for i, (card_id, entry) in enumerate(entries_with_keys):
-        rating_key = entry.get("ratingKey")
-        artist = entry.get("artist", "Unknown")
-        title = entry.get("title", "Unknown")
-
-        if debug:
-            print(f"[{i + 1}/{len(entries_with_keys)}] Checking {rating_key}: {artist} - {title}... ", end="", flush=True)
-
-        try:
-            url = f"{server_url}/library/metadata/{rating_key}"
-            response = plex_request(url, token)
-            metadata = response.get("MediaContainer", {}).get("Metadata", [])
-            if metadata:
-                if debug:
-                    print("OK")
-            else:
-                if debug:
-                    print("MISSING")
-                missing.append((card_id, rating_key, artist, title))
-        except Exception as e:
-            if debug:
-                print(f"MISSING ({e})")
-            missing.append((card_id, rating_key, artist, title))
-
-    # Summary
-    print(f"\n{'=' * 50}")
-    print(f"Check complete: {len(entries_with_keys)} tracks checked")
-    if missing:
-        print(f"\nMISSING TRACKS ({len(missing)}):")
-        for card_id, rating_key, artist, title in missing:
-            print(f"  Card #{card_id}: {artist} - {title} (ratingKey: {rating_key})")
-
-        if fix:
-            # Remove missing entries from mapping
-            for card_id, _, _, _ in missing:
-                mapping[card_id] = None
-            with open(mapping_path, "w", encoding="utf-8") as f:
-                json.dump(mapping, f, indent=2)
-            print(f"\nRemoved {len(missing)} missing tracks from mapping.")
-            print("Run plex-mapper again to re-match these tracks.")
-        else:
-            print(f"\nUse --fix to remove these tracks from the mapping.")
-    else:
-        print("All tracks exist in Plex!")
-    print("=" * 50)
-
-
-def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False) -> None:
-    """Re-fetch metadata for all tracks in a mapping file using their existing ratingKey."""
-    if not mapping_path.exists():
-        print(f"Error: Mapping file not found: {mapping_path}")
-        sys.exit(1)
-
-    with open(mapping_path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
-
-    # Get all entries with rating keys
-    entries_with_keys = [(card_id, entry) for card_id, entry in mapping.items()
-                         if entry is not None and entry.get("ratingKey")]
-
-    print(f"Enriching {len(entries_with_keys)} tracks in {mapping_path.name}...\n")
-
-    enriched = 0
-    missing = 0
-    unchanged = 0
-
-    for i, (card_id, entry) in enumerate(entries_with_keys):
-        rating_key = entry.get("ratingKey")
-        old_artist = entry.get("artist", "Unknown")
-        old_title = entry.get("title", "Unknown")
-
-        if debug:
-            print(f"[{i + 1}/{len(entries_with_keys)}] Fetching {rating_key}: {old_artist} - {old_title}... ", end="", flush=True)
-
-        new_track = fetch_plex_track(server_url, token, rating_key, debug=False)
-
-        if new_track:
-            # Check what changed
-            changes = []
-            if new_track.get("guid") and not entry.get("guid"):
-                changes.append("guid")
-            if new_track.get("mbid") and not entry.get("mbid"):
-                changes.append("mbid")
-            if new_track.get("year") != entry.get("year"):
-                changes.append(f"year:{entry.get('year')}->{new_track.get('year')}")
-            if new_track.get("artist") != entry.get("artist"):
-                changes.append(f"artist")
-            if new_track.get("title") != entry.get("title"):
-                changes.append(f"title")
-
-            mapping[card_id] = new_track
-
-            if changes:
-                enriched += 1
-                if debug:
-                    print(f"UPDATED ({', '.join(changes)})")
-                elif not debug:
-                    print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: UPDATED ({', '.join(changes)})")
-            else:
-                unchanged += 1
-                if debug:
-                    print("unchanged")
-        else:
-            missing += 1
-            if debug:
-                print("MISSING")
-            else:
-                print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: MISSING (ratingKey: {rating_key})")
-
-    # Write updated mapping
-    with open(mapping_path, "w", encoding="utf-8") as f:
-        json.dump(mapping, f, indent=2)
-
-    # Summary
-    print(f"\n{'=' * 50}")
-    print(f"Enrich complete: {len(entries_with_keys)} tracks processed")
-    print(f"  Updated:   {enriched}")
-    print(f"  Unchanged: {unchanged}")
-    print(f"  Missing:   {missing}")
-    print(f"\nMapping saved to: {mapping_path}")
-    print("=" * 50)
-
-
 def main():
     args = parse_args()
 
-    # Load track remapper (for year/artist/title overrides)
-    remapper_path = Path(args.remapper) if args.remapper else None
-    load_track_remapper(remapper_path)
+    # Load track remapper from config path
+    load_track_remapper(args.remapper_path)
 
     # Normalize server URL
     server_url = args.server.rstrip("/")
 
-    # Read and parse CSV
-    csv_path = Path(args.csv).resolve()
+    # Resolve CSV path
+    csv_path = args.files_path / args.csv
     if not csv_path.exists():
         print(f"Error: CSV file not found: {csv_path}")
         sys.exit(1)
 
     # Determine output/mapping filename
     if args.output:
-        output_path = Path(args.output)
+        output_path = args.files_path / args.output
     else:
         csv_basename = csv_path.stem
         lang = csv_basename.replace("hitster-", "")
-        output_path = Path(f"plex-mapping-{lang}.json")
-
-    # Handle --check mode
-    if args.check:
-        test_plex_connection(server_url, args.token)
-        print()
-        check_mapping(server_url, args.token, output_path, args.debug, args.fix)
-        sys.exit(0)
-
-    # Handle --enrich mode
-    if args.enrich:
-        test_plex_connection(server_url, args.token)
-        print()
-        enrich_mapping(server_url, args.token, output_path, args.debug)
-
-        # Update manifest after enriching
-        manifest_path = Path(args.manifest) if args.manifest else None
-        update_manifest(output_path.parent, csv_path.parent, manifest_path)
-        sys.exit(0)
+        output_path = args.files_path / f"plex-mapping-{lang}.json"
 
     print(f"Reading CSV: {csv_path}")
     headers, rows = parse_csv(str(csv_path))
@@ -775,8 +597,7 @@ def main():
         json.dump(mapping, f, indent=2)
 
     # Update manifest.json to list available mappings (pass CSV dir for playlists.csv)
-    manifest_path = Path(args.manifest) if args.manifest else None
-    update_manifest(output_path.parent, csv_path.parent, manifest_path)
+    update_manifest(output_path.parent, csv_path.parent, args.manifest_path)
 
     # Download missing songs if requested
     if args.download and missing_songs:

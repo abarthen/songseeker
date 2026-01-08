@@ -74,9 +74,14 @@ To enable Plex, create `plex-config.json` in the root:
 ```json
 {
   "serverUrl": "https://your-plex-server:32400",
-  "token": "YOUR_PLEX_TOKEN"
+  "token": "YOUR_PLEX_TOKEN",
+  "files-path": "/path/to/hitster/files",
+  "remapper-filename": "plex-remapper.json",
+  "manifest-filename": "plex-manifest.json"
 }
 ```
+
+The `files-path`, `remapper-filename`, and `manifest-filename` fields are used by the tools (not the web app). All tool file parameters accept filenames only, resolved from `files-path`.
 
 **Card ID Normalization:**
 - Card IDs are normalized by parsing as integer (removes leading zeros)
@@ -107,19 +112,20 @@ See `tools/README.md` for usage instructions.
 
 ### Custom Game Creator (tools/)
 
-Create custom Hitster-style games from Plex rating keys.
+Create custom Hitster-style games from Plex rating keys or playlists.
 
 **Location:** `tools/plex_mapper/custom_game.py`
 
 **Features:**
-- Input: List of Plex rating keys (comma-separated or from file)
-- Output: Mapping JSON, updated manifest, and printable PDF cards
+- Input: List of Plex rating keys (comma-separated or from file) or a Plex playlist
+- Output: Mapping JSON, updated manifest, and printable PDF cards (auto-named from game name)
 - Cards contain QR codes with `plex:{ratingKey}` format
 - Invalid rating keys are skipped with a warning
 
 **Usage:**
 ```bash
-poetry run custom-game --name "80s Classics" --mapping "80s-classics" --keys "12345,67890" --cards-pdf cards.pdf
+poetry run custom-game --name "80s Classics" --mapping "80s-classics" --playlist "My 80s Playlist"
+poetry run custom-game --name "Party Mix" --mapping "party-mix" --keys "12345,67890"
 ```
 
 ### Plex Scan Tool (tools/)
