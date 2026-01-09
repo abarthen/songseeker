@@ -1,8 +1,14 @@
-# Stage 1: Clone plex-lists repo
+# Stage 1: Clone plex-lists repo (private repo requires token)
 FROM alpine/git AS plex-lists
 ARG PLEX_LISTS_REPO=https://github.com/abarthen/songseeker-plex-lists.git
 ARG PLEX_LISTS_BRANCH=main
-RUN git clone --depth 1 --branch ${PLEX_LISTS_BRANCH} ${PLEX_LISTS_REPO} /plex-lists
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      REPO_URL=$(echo $PLEX_LISTS_REPO | sed "s|https://|https://${GITHUB_TOKEN}@|"); \
+    else \
+      REPO_URL=$PLEX_LISTS_REPO; \
+    fi && \
+    git clone --depth 1 --branch ${PLEX_LISTS_BRANCH} "$REPO_URL" /plex-lists
 
 # Stage 2: Final image
 FROM nginx

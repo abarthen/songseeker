@@ -24,14 +24,16 @@ This is a static web app with no build system. To develop locally:
 ## Docker Build
 
 ```bash
-docker build -t songseeker -f imagebuild/Dockerfile .
+docker build -t songseeker -f imagebuild/Dockerfile \
+  --build-arg GITHUB_TOKEN=ghp_your_token_here .
 ```
 
 The Docker image uses nginx to serve the app. Plex mapping files (`plex-manifest.json`, `plex-mapping-*.json`) are cloned from [songseeker-plex-lists](https://github.com/abarthen/songseeker-plex-lists) during build and copied to `/plex-data/` at startup if not already present.
 
-**Build args** (optional):
-- `PLEX_LISTS_REPO` - Override the plex-lists repository URL
-- `PLEX_LISTS_BRANCH` - Override the branch (default: main)
+**Build args:**
+- `GITHUB_TOKEN` - GitHub Personal Access Token (required for private repo, needs `repo` scope)
+- `PLEX_LISTS_REPO` - Override repository URL (default: songseeker-plex-lists)
+- `PLEX_LISTS_BRANCH` - Override branch (default: main)
 
 **Runtime behavior**: On container start, any mapping files not present in `/plex-data/` are automatically copied from the built-in defaults. This allows the volume mount to overlay `/plex-data/` while still providing default mapping files.
 
