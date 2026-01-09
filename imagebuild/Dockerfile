@@ -1,10 +1,11 @@
-# Stage 1: Clone plex-lists repo (private repo requires token)
+# Stage 1: Clone plex-lists repo (private repo requires token via secret)
 FROM alpine/git AS plex-lists
 ARG PLEX_LISTS_REPO=https://github.com/abarthen/songseeker-plex-lists.git
 ARG PLEX_LISTS_BRANCH=main
-ARG GITHUB_TOKEN
-RUN if [ -n "$GITHUB_TOKEN" ]; then \
-      REPO_URL=$(echo $PLEX_LISTS_REPO | sed "s|https://|https://${GITHUB_TOKEN}@|"); \
+RUN --mount=type=secret,id=github_token \
+    if [ -f /run/secrets/github_token ]; then \
+      TOKEN=$(cat /run/secrets/github_token); \
+      REPO_URL=$(echo $PLEX_LISTS_REPO | sed "s|https://|https://${TOKEN}@|"); \
     else \
       REPO_URL=$PLEX_LISTS_REPO; \
     fi && \
