@@ -1,3 +1,10 @@
+# Stage 1: Clone plex-lists repo
+FROM alpine/git AS plex-lists
+ARG PLEX_LISTS_REPO=https://github.com/abarthen/songseeker-plex-lists.git
+ARG PLEX_LISTS_BRANCH=main
+RUN git clone --depth 1 --branch ${PLEX_LISTS_BRANCH} ${PLEX_LISTS_REPO} /plex-lists
+
+# Stage 2: Final image
 FROM nginx
 
 # Install Python for auth server and htpasswd tools
@@ -21,7 +28,14 @@ COPY icons/* /usr/share/nginx/html/icons/
 # Copy favicon to root for browser default requests
 COPY icons/favicon.ico /usr/share/nginx/html/favicon.ico
 
-# Note: plex-config.json, plex-manifest.json, and plex-mapping-*.json are mounted at runtime
+# Copy mapping files from plex-lists repo to staging directory
+# start.sh will copy these to /plex-data/ at runtime if not already present
+RUN mkdir -p /opt/plex-defaults
+COPY --from=plex-lists /plex-lists/plex-manifest.json /opt/plex-defaults/
+COPY --from=plex-lists /plex-lists/plex-mapping-*.json /opt/plex-defaults/
+
+# Create plex-data directory (may be overlaid by volume mount)
+RUN mkdir -p /plex-data
 
 # Create empty htpasswd file (will be overwritten by mount)
 RUN touch /etc/nginx/.htpasswd

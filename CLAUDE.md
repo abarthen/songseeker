@@ -27,7 +27,13 @@ This is a static web app with no build system. To develop locally:
 docker build -t songseeker -f imagebuild/Dockerfile .
 ```
 
-The Docker image uses nginx to serve the app. Plex mapping files (`plex-manifest.json`, `plex-mapping-*.json`) and config (`plex-config.json`) are mounted at runtime.
+The Docker image uses nginx to serve the app. Plex mapping files (`plex-manifest.json`, `plex-mapping-*.json`) are cloned from [songseeker-plex-lists](https://github.com/abarthen/songseeker-plex-lists) during build and copied to `/plex-data/` at startup if not already present.
+
+**Build args** (optional):
+- `PLEX_LISTS_REPO` - Override the plex-lists repository URL
+- `PLEX_LISTS_BRANCH` - Override the branch (default: main)
+
+**Runtime behavior**: On container start, any mapping files not present in `/plex-data/` are automatically copied from the built-in defaults. This allows the volume mount to overlay `/plex-data/` while still providing default mapping files.
 
 ### Authentication
 
@@ -41,8 +47,11 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 **Setup:**
 1. Generate htpasswd: `htpasswd -c .htpasswd username`
 2. Generate cookie secret: `openssl rand -hex 32 > .cookie_secret`
-3. Mount `.htpasswd` file to `/etc/nginx/.htpasswd`
-4. Mount `.cookie_secret` file to `/etc/nginx/.cookie_secret`
+
+**Required mounts:**
+- `.htpasswd` → `/etc/nginx/.htpasswd`
+- `.cookie_secret` → `/etc/nginx/.cookie_secret`
+- `plex-config.json` → `/plex-data/plex-config.json`
 
 **Session cookies** are valid for 30 days and signed with HMAC-SHA256.
 
@@ -150,5 +159,6 @@ poetry run plex-scan --list-sections
 
 ## Related Repositories
 
-- [songseeker-hitster-playlists](https://github.com/andygruber/songseeker-hitster-playlists) - CSV files mapping Hitster card IDs to YouTube URLs (included in workspace)
+- [songseeker-plex-lists](https://github.com/abarthen/songseeker-plex-lists) - Pre-built Plex mapping files (cloned during Docker build)
+- [songseeker-hitster-playlists](https://github.com/andygruber/songseeker-hitster-playlists) - CSV files mapping Hitster card IDs to YouTube URLs
 - [songseeker-card-generator](https://github.com/andygruber/songseeker-card-generator) - Generate QR code game cards
