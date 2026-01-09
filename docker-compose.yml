@@ -1,14 +1,12 @@
 services:
   songseeker:
-    build:
-      context: .
-      dockerfile: imagebuild/Dockerfile
+    image: songseeker
     container_name: songseeker
     ports:
       - "8042:80"
     volumes:
-      # Plex JSON files (config, manifest, and all mapping files)
-      - /mnt/user/appdata/songseeker:/plex-data:ro
+      # Plex data - needs write access for deploying built-in mapping files
+      - /mnt/user/appdata/songseeker:/plex-data
       # Auth credentials (htpasswd format)
       - /mnt/user/appdata/songseeker/.htpasswd:/etc/nginx/.htpasswd:ro
       # Cookie signing secret (generate with: openssl rand -hex 32 > .cookie_secret)
