@@ -43,7 +43,7 @@ The Docker image uses nginx to serve the app. Plex mapping files (`plex-manifest
 - `PLEX_LISTS_REPO` - Override repository URL
 - `PLEX_LISTS_BRANCH` - Override branch (default: main)
 
-**Runtime behavior**: On container start, any mapping files not present in `/plex-data/` are automatically copied from the built-in defaults. This allows the volume mount to overlay `/plex-data/` while still providing default mapping files.
+**Runtime behavior**: On container start, built-in mapping files are deployed to `/plex-data/`, overwriting any existing files. This ensures you always have the latest mappings from the build. Your `plex-config.json` is not affected (it's not included in the defaults).
 
 ### Authentication
 
