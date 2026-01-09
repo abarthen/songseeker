@@ -47,8 +47,9 @@ hr {
   border: none;
   height: 0.15rem;
   background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
-  margin: 2rem 0;
+  margin: 1.5rem 0 1rem 0;
   border-radius: 1rem;
+  width: 80%;
 }
 
 .button,
@@ -60,7 +61,7 @@ hr {
   font-size: 1.1rem;
   font-weight: 700;
   padding: 0.6rem 1.5rem;
-  margin: 0.7rem 0.5rem;
+  margin: 0;
   border: none;
   border-radius: 1.5rem;
   box-shadow: 0 0.25rem 1rem rgba(221, 36, 118, 0.15);
@@ -79,6 +80,14 @@ hr {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
 }
 
 .button_startscan {
@@ -165,7 +174,7 @@ hr {
 #yearrow,
 #durationrow {
   display: none;
-  margin: 0.6rem auto;
+  margin: 0.5rem auto;
   font-size: 1.1rem;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 0.6rem;
@@ -174,11 +183,15 @@ hr {
   color: #fff;
 }
 
+#ratingkeyrow {
+  margin-top: 1rem;
+}
+
 
 .settings_div {
   width: 100%;
   max-width: 32rem;
-  margin: 2rem auto 0 auto;
+  margin: 0 auto;
   background: rgba(255, 255, 255, 0.09);
   border-radius: 1.1rem;
   box-shadow: 0 0.15rem 0.8rem rgba(30, 60, 114, 0.12);
@@ -237,7 +250,10 @@ label {
 #toggleSonginfoButton {
   font-size: 0.9rem;
   padding: 0.4rem 1rem;
-  margin: 0.5rem;
+}
+
+#toggleSettingsButton {
+  margin-bottom: 1rem;
 }
 
 #playback-duration {

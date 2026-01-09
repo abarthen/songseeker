@@ -19,6 +19,7 @@ Usage:
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .plex_api import (
@@ -93,13 +94,15 @@ def check_mapping(server_url: str, token: str, mapping_path: Path, debug: bool =
     print("=" * 50)
 
 
-def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False) -> None:
+def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool = False, workers: int = 10) -> None:
     """Re-fetch metadata for all tracks in a mapping file using their existing ratingKey.
 
     This updates tracks with:
     - guid and mbid (stable identifiers)
     - alternativeKeys (from remapper, for old cards)
     - Any metadata changes (year, artist, title from remapper)
+
+    Uses parallel requests for speed (configurable via workers parameter).
     """
     if not mapping_path.exists():
         print(f"Error: Mapping file not found: {mapping_path}")
@@ -112,25 +115,20 @@ def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool 
     entries_with_keys = [(card_id, entry) for card_id, entry in mapping.items()
                          if entry is not None and entry.get("ratingKey")]
 
-    print(f"Enriching {len(entries_with_keys)} tracks in {mapping_path.name}...\n")
+    total = len(entries_with_keys)
+    print(f"Enriching {total} tracks in {mapping_path.name} ({workers} parallel workers)...\n")
 
     enriched = 0
     missing = 0
     unchanged = 0
 
-    for i, (card_id, entry) in enumerate(entries_with_keys):
+    def fetch_track(card_id: str, entry: dict) -> tuple[str, dict | None, dict, list[str]]:
+        """Fetch a single track and return (card_id, new_track, old_entry, changes)."""
         rating_key = entry.get("ratingKey")
-        old_artist = entry.get("artist", "Unknown")
-        old_title = entry.get("title", "Unknown")
-
-        if debug:
-            print(f"[{i + 1}/{len(entries_with_keys)}] Fetching {rating_key}: {old_artist} - {old_title}... ", end="", flush=True)
-
         new_track = fetch_plex_track(server_url, token, rating_key, debug=False)
 
+        changes = []
         if new_track:
-            # Check what changed
-            changes = []
             if new_track.get("guid") and not entry.get("guid"):
                 changes.append("guid")
             if new_track.get("mbid") and not entry.get("mbid"):
@@ -144,24 +142,38 @@ def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool 
             if new_track.get("title") != entry.get("title"):
                 changes.append("title")
 
-            mapping[card_id] = new_track
+        return card_id, new_track, entry, changes
 
-            if changes:
-                enriched += 1
-                if debug:
-                    print(f"UPDATED ({', '.join(changes)})")
+    # Process tracks in parallel
+    completed = 0
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(fetch_track, card_id, entry): (card_id, entry)
+            for card_id, entry in entries_with_keys
+        }
+
+        for future in as_completed(futures):
+            card_id, new_track, old_entry, changes = future.result()
+            completed += 1
+            old_artist = old_entry.get("artist", "Unknown")
+            old_title = old_entry.get("title", "Unknown")
+            rating_key = old_entry.get("ratingKey")
+
+            if new_track:
+                mapping[card_id] = new_track
+                if changes:
+                    enriched += 1
+                    if debug:
+                        print(f"[{completed}/{total}] {old_artist} - {old_title}: UPDATED ({', '.join(changes)})")
+                    else:
+                        print(f"[{completed}/{total}] UPDATED: {old_artist} - {old_title} ({', '.join(changes)})")
                 else:
-                    print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: UPDATED ({', '.join(changes)})")
+                    unchanged += 1
+                    if debug:
+                        print(f"[{completed}/{total}] {old_artist} - {old_title}: unchanged")
             else:
-                unchanged += 1
-                if debug:
-                    print("unchanged")
-        else:
-            missing += 1
-            if debug:
-                print("MISSING")
-            else:
-                print(f"[{i + 1}/{len(entries_with_keys)}] {old_artist} - {old_title}: MISSING (ratingKey: {rating_key})")
+                missing += 1
+                print(f"[{completed}/{total}] MISSING: {old_artist} - {old_title} (ratingKey: {rating_key})")
 
     # Write updated mapping
     with open(mapping_path, "w", encoding="utf-8") as f:
@@ -169,7 +181,7 @@ def enrich_mapping(server_url: str, token: str, mapping_path: Path, debug: bool 
 
     # Summary
     print(f"\n{'=' * 50}")
-    print(f"Enrich complete: {len(entries_with_keys)} tracks processed")
+    print(f"Enrich complete: {total} tracks processed")
     print(f"  Updated:   {enriched}")
     print(f"  Unchanged: {unchanged}")
     print(f"  Missing:   {missing}")
@@ -220,6 +232,10 @@ def parse_args():
         "--debug", "-d", action="store_true",
         help="Show detailed progress for each track"
     )
+    parser.add_argument(
+        "--workers", "-w", type=int, default=10,
+        help="Number of parallel workers for --enrich (default: 10)"
+    )
 
     args = parser.parse_args()
 
@@ -250,7 +266,7 @@ def main():
     elif args.enrich:
         # Load remapper from config path
         load_track_remapper(args.remapper_path)
-        enrich_mapping(server_url, args.token, mapping_path, args.debug)
+        enrich_mapping(server_url, args.token, mapping_path, args.debug, args.workers)
 
 
 if __name__ == "__main__":
