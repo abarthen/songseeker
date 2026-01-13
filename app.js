@@ -7,6 +7,55 @@ let qrScanner;
 let lastDecodedText = ""; // Store the last decoded text
 let currentStartTime = 0;
 let autoShowSonginfoTimer = null; // Timer for auto-showing song info
+let progressBarInterval = null; // Timer for updating progress bar
+
+// Button state management
+// States: 'disabled' (grey, no song), 'loading' (green, loading), 'ready' (green, play),
+//         'playing' (yellow, pause), 'ended' (green, replay)
+function setButtonState(state) {
+    const btn = document.getElementById('startstop-song');
+    const seekBack = document.getElementById('seek-back');
+    const seekForward = document.getElementById('seek-forward');
+
+    // Remove all state classes
+    btn.classList.remove('loading', 'ready', 'playing', 'ended');
+    btn.disabled = false;
+
+    switch(state) {
+        case 'disabled':
+            btn.disabled = true;
+            btn.textContent = 'Play';
+            seekBack.disabled = true;
+            seekForward.disabled = true;
+            break;
+        case 'loading':
+            btn.disabled = true;
+            btn.classList.add('loading');
+            btn.textContent = 'Loading...';
+            seekBack.disabled = true;
+            seekForward.disabled = true;
+            break;
+        case 'ready':
+            btn.classList.add('ready');
+            btn.textContent = 'Play';
+            // Enable seek buttons when a song is ready
+            seekBack.disabled = false;
+            seekForward.disabled = false;
+            break;
+        case 'playing':
+            btn.classList.add('playing');
+            btn.textContent = 'Pause';
+            seekBack.disabled = false;
+            seekForward.disabled = false;
+            break;
+        case 'ended':
+            btn.classList.add('ended');
+            btn.textContent = 'Replay';
+            seekBack.disabled = false;
+            seekForward.disabled = false;
+            break;
+    }
+}
 
 // Plex integration
 let plexMappingCache = {}; // In-memory cache for Plex mappings
@@ -203,9 +252,7 @@ async function handleScannedLink(decodedText) {
     hideSongInfo();
 
     playerManager.stop();
-    document.getElementById('startstop-song').innerHTML = "Play";
-    document.getElementById('startstop-song').style.background = "";
-    document.getElementById('startstop-song').classList.remove('playing');
+    setButtonState('loading');
 
     let plexTrackInfo = null;
     let plexDebugInfo = "";
@@ -303,8 +350,10 @@ async function handleScannedLink(decodedText) {
         document.getElementById('song-title').style.color = '#cc0000';
         document.getElementById('song-year').textContent = '';
         document.getElementById('song-duration').textContent = '';
-        document.getElementById('startstop-song').disabled = true;
-        document.getElementById('startstop-song').style.background = '';
+        setButtonState('disabled');
+    } else {
+        // Unknown link format
+        setButtonState('disabled');
     }
 }
 
@@ -349,8 +398,7 @@ function handlePlayerStateChange(event) {
     const PlayerState = playerManager.PlayerState;
 
     if (state === PlayerState.CUED) {
-        document.getElementById('startstop-song').disabled = false;
-        document.getElementById('startstop-song').style.background = "green";
+        setButtonState('ready');
 
         // Wait for duration to be available
         setTimeout(() => {
@@ -358,6 +406,7 @@ function handlePlayerStateChange(event) {
             if (duration) {
                 document.getElementById('song-duration').textContent = formatDuration(duration);
             }
+            updateProgressBar();
         }, 500);
 
         // Handle autoplay
@@ -365,8 +414,7 @@ function handlePlayerStateChange(event) {
             playerManager.play();
             startAutoShowTimer();
         } else if (document.getElementById('autoplay').checked) {
-            document.getElementById('startstop-song').innerHTML = "Stop";
-            document.getElementById('startstop-song').classList.add('playing');
+            setButtonState('playing');
             if (document.getElementById('randomplayback').checked) {
                 playSongAtRandomStartTime();
             } else {
@@ -375,15 +423,17 @@ function handlePlayerStateChange(event) {
             startAutoShowTimer();
         }
     } else if (state === PlayerState.PLAYING) {
-        document.getElementById('startstop-song').style.background = "red";
-        document.getElementById('startstop-song').innerHTML = "Stop";
-        document.getElementById('startstop-song').classList.add('playing');
-    } else if (state === PlayerState.PAUSED || state === PlayerState.ENDED) {
-        document.getElementById('startstop-song').innerHTML = "Play";
-        document.getElementById('startstop-song').style.background = "green";
-        document.getElementById('startstop-song').classList.remove('playing');
+        setButtonState('playing');
+        startProgressBarUpdate();
+    } else if (state === PlayerState.PAUSED) {
+        setButtonState('ready');
+        stopProgressBarUpdate();
+    } else if (state === PlayerState.ENDED) {
+        setButtonState('ended');
+        stopProgressBarUpdate();
     } else if (state === PlayerState.BUFFERING) {
-        document.getElementById('startstop-song').style.background = "orange";
+        // Keep playing state during buffering, just visual feedback handled by CSS
+        setButtonState('playing');
     }
 }
 
@@ -394,21 +444,74 @@ function formatDuration(duration) {
     return minutes + ":" + (seconds < 10 ? '0' : '') + seconds;
 }
 
+// Progress bar functions
+function updateProgressBar() {
+    const progressBar = document.getElementById('progress-bar');
+    const currentTimeEl = document.getElementById('current-time');
+    const totalTimeEl = document.getElementById('total-time');
+
+    const currentTime = playerManager.getCurrentTime();
+    const duration = playerManager.getDuration();
+
+    if (duration > 0) {
+        const percentage = (currentTime / duration) * 100;
+        progressBar.value = percentage;
+        progressBar.style.background = `linear-gradient(to right, #ff512f 0%, #ff512f ${percentage}%, rgba(255, 255, 255, 0.2) ${percentage}%)`;
+        currentTimeEl.textContent = formatDuration(currentTime);
+        totalTimeEl.textContent = formatDuration(duration);
+    }
+}
+
+function startProgressBarUpdate() {
+    stopProgressBarUpdate();
+    progressBarInterval = setInterval(updateProgressBar, 250);
+    updateSeekButtonsState(true);
+}
+
+function stopProgressBarUpdate() {
+    if (progressBarInterval) {
+        clearInterval(progressBarInterval);
+        progressBarInterval = null;
+    }
+    updateSeekButtonsState(false);
+}
+
+function updateSeekButtonsState(enabled) {
+    document.getElementById('seek-back').disabled = !enabled;
+    document.getElementById('seek-forward').disabled = !enabled;
+}
+
+// Seek button handlers
+function seekRelative(seconds) {
+    const currentTime = playerManager.getCurrentTime();
+    const duration = playerManager.getDuration();
+    const newTime = Math.max(0, Math.min(duration, currentTime + seconds));
+    playerManager.seekTo(newTime);
+    updateProgressBar();
+}
+
 // Add event listeners to Play and Stop buttons
 document.getElementById('startstop-song').addEventListener('click', function() {
-    if (this.innerHTML == "Play") {
-        this.innerHTML = "Stop";
-        this.classList.add('playing');
-        if (document.getElementById('randomplayback').checked == true) {
+    const isPlaying = this.classList.contains('playing');
+    const isEnded = this.classList.contains('ended');
+
+    if (isPlaying) {
+        // Pause playback
+        playerManager.pause();
+        setButtonState('ready');
+    } else {
+        // Start or resume playback (handles both 'ready' and 'ended' states)
+        setButtonState('playing');
+        if (isEnded) {
+            // Replay from beginning
+            playerManager.seekTo(0);
+        }
+        if (document.getElementById('randomplayback').checked) {
             playSongAtRandomStartTime();
         } else {
             playerManager.play();
         }
         startAutoShowTimer();
-    } else {
-        this.innerHTML = "Play";
-        this.classList.remove('playing');
-        playerManager.pause();
     }
 });
 
@@ -416,16 +519,35 @@ function playSongAtRandomStartTime() {
     playbackDuration = parseInt(document.getElementById('playback-duration').value, 10) || 30;
 
     playerManager.playAtRandomStartTime(playbackDuration, currentStartTime, () => {
-        document.getElementById('startstop-song').innerHTML = "Play";
-        document.getElementById('startstop-song').classList.remove('playing');
+        setButtonState('ended');
+        stopProgressBarUpdate();
     });
 }
+
+// Seek button event listeners
+document.getElementById('seek-back').addEventListener('click', function() {
+    seekRelative(-30);
+});
+
+document.getElementById('seek-forward').addEventListener('click', function() {
+    seekRelative(30);
+});
+
+// Progress bar seek event listener
+document.getElementById('progress-bar').addEventListener('input', function() {
+    const duration = playerManager.getDuration();
+    if (duration > 0) {
+        const seekTime = (this.value / 100) * duration;
+        playerManager.seekTo(seekTime);
+        updateProgressBar();
+    }
+});
 
 // Assuming you have an element with the ID 'qr-reader' for the QR scanner
 document.getElementById('qr-reader').style.display = 'none'; // Initially hide the QR Scanner
 
 // Initially disable the play button until a song is scanned
-document.getElementById('startstop-song').disabled = true;
+setButtonState('disabled');
 
 document.getElementById('startScanButton').addEventListener('click', function() {
     document.getElementById('cancelScanButton').style.display = 'block';
@@ -453,6 +575,8 @@ function showSongInfo() {
     document.getElementById('titlerow').style.display = 'block';
     document.getElementById('yearrow').style.display = 'block';
     document.getElementById('durationrow').style.display = 'block';
+    document.getElementById('progressrow').style.display = 'flex';
+    updateProgressBar();
 }
 
 function hideSongInfo() {
@@ -462,6 +586,7 @@ function hideSongInfo() {
         document.getElementById('titlerow').style.display = 'none';
         document.getElementById('yearrow').style.display = 'none';
         document.getElementById('durationrow').style.display = 'none';
+        document.getElementById('progressrow').style.display = 'none';
     }
 }
 
