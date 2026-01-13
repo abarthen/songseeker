@@ -55,6 +55,9 @@ function setButtonState(state) {
             seekForward.disabled = false;
             break;
     }
+
+    // Update progress bar visibility based on current state and checkbox
+    updateProgressBarVisibility();
 }
 
 // Plex integration
@@ -349,7 +352,6 @@ async function handleScannedLink(decodedText) {
         document.getElementById('song-title').textContent = `Card #${normalizedCardId} not available`;
         document.getElementById('song-title').style.color = '#cc0000';
         document.getElementById('song-year').textContent = '';
-        document.getElementById('song-duration').textContent = '';
         setButtonState('disabled');
     } else {
         // Unknown link format
@@ -400,13 +402,10 @@ function handlePlayerStateChange(event) {
     if (state === PlayerState.CUED) {
         setButtonState('ready');
 
-        // Wait for duration to be available
+        // Wait for duration to be available, then update progress bar
         setTimeout(() => {
-            const duration = playerManager.getDuration();
-            if (duration) {
-                document.getElementById('song-duration').textContent = formatDuration(duration);
-            }
             updateProgressBar();
+            updateProgressBarVisibility();
         }, 500);
 
         // Handle autoplay
@@ -574,9 +573,6 @@ function showSongInfo() {
     document.getElementById('artistrow').style.display = 'block';
     document.getElementById('titlerow').style.display = 'block';
     document.getElementById('yearrow').style.display = 'block';
-    document.getElementById('durationrow').style.display = 'block';
-    document.getElementById('progressrow').style.display = 'flex';
-    updateProgressBar();
 }
 
 function hideSongInfo() {
@@ -585,7 +581,18 @@ function hideSongInfo() {
         document.getElementById('artistrow').style.display = 'none';
         document.getElementById('titlerow').style.display = 'none';
         document.getElementById('yearrow').style.display = 'none';
-        document.getElementById('durationrow').style.display = 'none';
+    }
+}
+
+function updateProgressBarVisibility() {
+    const showProgressBar = document.getElementById('showProgressBar').checked;
+    const btn = document.getElementById('startstop-song');
+    const hasSong = !btn.disabled || btn.classList.contains('loading');
+
+    if (showProgressBar && hasSong) {
+        document.getElementById('progressrow').style.display = 'flex';
+        updateProgressBar();
+    } else {
         document.getElementById('progressrow').style.display = 'none';
     }
 }
@@ -647,6 +654,12 @@ document.getElementById('autoplay').addEventListener('click', function() {
 
 document.getElementById('autoShowSonginfo').addEventListener('click', function() {
     document.cookie = "autoShowSonginfoChecked=" + this.checked + ";max-age=2592000"; //30 Tage
+    listCookies();
+});
+
+document.getElementById('showProgressBar').addEventListener('click', function() {
+    document.cookie = "showProgressBarChecked=" + this.checked + ";max-age=2592000"; //30 Tage
+    updateProgressBarVisibility();
     listCookies();
 });
 
@@ -721,6 +734,10 @@ function getCookies() {
     if (getCookieValue("autoShowSonginfoChecked") != "") {
         isTrueSet = (getCookieValue("autoShowSonginfoChecked") === 'true');
         document.getElementById('autoShowSonginfo').checked = isTrueSet;
+    }
+    if (getCookieValue("showProgressBarChecked") != "") {
+        isTrueSet = (getCookieValue("showProgressBarChecked") === 'true');
+        document.getElementById('showProgressBar').checked = isTrueSet;
     }
     listCookies();
 }

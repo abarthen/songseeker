@@ -276,9 +276,7 @@ hr {
 #ratingkeyrow,
 #artistrow,
 #titlerow,
-#yearrow,
-#durationrow,
-#progressrow {
+#yearrow {
   display: none;
   margin: 0.5rem auto;
   font-size: 1.1rem;
@@ -294,7 +292,9 @@ hr {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.8rem 1rem;
+  padding: 0.5rem 1rem;
+  width: 80%;
+  max-width: 20rem;
 }
 
 #progress-bar {

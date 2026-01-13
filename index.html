@@ -42,6 +42,11 @@
         <button id="startstop-song" class="button_startstop">Play</button>
         <button id="seek-forward" class="button_seek" disabled>+30s</button>
       </div>
+      <div id="progressrow">
+        <span id="current-time">0:00</span>
+        <input type="range" id="progress-bar" min="0" max="100" value="0" step="0.1">
+        <span id="total-time">0:00</span>
+      </div>
       <button id="toggleSonginfoButton" class="button">Show Song Info</button>
     </div>
 
@@ -49,14 +54,6 @@
     <div id="artistrow">Artist: <span id="song-artist"></span></div>
     <div id="titlerow">Title: <span id="song-title"></span></div>
     <div id="yearrow">Year: <span id="song-year"></span></div>
-    <div id="durationrow">
-      Duration: <span id="song-duration"></span>
-    </div>
-    <div id="progressrow">
-      <span id="current-time">0:00</span>
-      <input type="range" id="progress-bar" min="0" max="100" value="0" step="0.1">
-      <span id="total-time">0:00</span>
-    </div>
 
     <hr />
     <button id="toggleSettingsButton" class="button">Show Settings</button>
@@ -69,6 +66,9 @@
           <br />
           <input type="checkbox" id="autoShowSonginfo" name="autoShowSonginfo" />
           <label for="autoShowSonginfo">Show song info after 5 seconds</label>
+          <br />
+          <input type="checkbox" id="showProgressBar" name="showProgressBar" />
+          <label for="showProgressBar">Show progress bar</label>
         </div>
       </div>
 
