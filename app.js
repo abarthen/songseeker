@@ -261,10 +261,12 @@ async function handleScannedLink(decodedText) {
     let plexDebugInfo = "";
     let hitsterData = null;
     let scannedKey = null;  // Set when card was matched via alternativeKey
+    let customGameKey = null;  // Set when a plex:XXXXX card was scanned
 
     if (isPlexRatingKey(decodedText)) {
         // Direct rating key from custom game card (plex:12345)
         const ratingKey = parsePlexRatingKey(decodedText);
+        customGameKey = ratingKey;
         console.log("Custom game card, rating key:", ratingKey);
 
         if (!plexConfig.serverUrl) {
@@ -353,8 +355,21 @@ async function handleScannedLink(decodedText) {
         document.getElementById('song-title').style.color = '#cc0000';
         document.getElementById('song-year').textContent = '';
         setButtonState('disabled');
+    } else if (customGameKey) {
+        // Custom game card was scanned but not found in any mapping
+        document.getElementById('song-ratingkey').textContent = '';
+        document.getElementById('song-artist').textContent = '';
+        document.getElementById('song-title').textContent = `Card ${customGameKey} not available`;
+        document.getElementById('song-title').style.color = '#cc0000';
+        document.getElementById('song-year').textContent = '';
+        setButtonState('disabled');
     } else {
         // Unknown link format
+        document.getElementById('song-ratingkey').textContent = '';
+        document.getElementById('song-artist').textContent = '';
+        document.getElementById('song-title').textContent = 'Unknown QR code format';
+        document.getElementById('song-title').style.color = '#cc0000';
+        document.getElementById('song-year').textContent = '';
         setButtonState('disabled');
     }
 }
