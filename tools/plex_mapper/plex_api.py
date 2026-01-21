@@ -172,6 +172,24 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
         with open(remapper_path, "r", encoding="utf-8") as f:
             data = json5.load(f)
 
+        # Check for duplicate ratingKeys
+        seen_keys: dict[str, int] = {}  # ratingKey -> first occurrence index
+        duplicates: list[tuple[str, int, int]] = []  # (ratingKey, first_index, duplicate_index)
+        for idx, entry in enumerate(data):
+            rating_key = entry.get("ratingKey")
+            if rating_key:
+                key_str = str(rating_key)
+                if key_str in seen_keys:
+                    duplicates.append((key_str, seen_keys[key_str], idx))
+                else:
+                    seen_keys[key_str] = idx
+
+        if duplicates:
+            print(f"Error: Duplicate ratingKeys found in {remapper_path.name}:")
+            for key, first_idx, dup_idx in duplicates:
+                print(f"  ratingKey {key}: entries at index {first_idx} and {dup_idx}")
+            sys.exit(1)
+
         for entry in data:
             rating_key = entry.get("ratingKey")
             replace_data = entry.get("replaceData", {})
