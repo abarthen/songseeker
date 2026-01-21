@@ -53,6 +53,18 @@ files = [
 ]
 
 [[package]]
+name = "json5"
+version = "0.13.0"
+description = "A Python implementation of the JSON5 data format."
+optional = false
+python-versions = ">=3.8.0"
+groups = ["main"]
+files = [
+    {file = "json5-0.13.0-py3-none-any.whl", hash = "sha256:9a08e1dd65f6a4d4c6fa82d216cf2477349ec2346a38fd70cc11d2557499fbcc"},
+    {file = "json5-0.13.0.tar.gz", hash = "sha256:b1edf8d487721c0bf64d83c28e91280781f6e21f4a797d3261c7c828d4c165bf"},
+]
+
+[[package]]
 name = "mutagen"
 version = "1.43.1"
 description = "read and write audio tags for many formats"
@@ -326,4 +338,4 @@ pycryptodome = "*"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "fcd86a8db4b4c98be5d3218cb4a4d665fc7e787b78c8240040f6d66bf02cc23d"
+content-hash = "4aa7a8bb11fdba5cd17e2fe120992c3ca066c761077d07b2cb955769d485e8a5"

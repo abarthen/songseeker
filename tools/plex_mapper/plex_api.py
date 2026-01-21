@@ -10,6 +10,7 @@ import re
 import sys
 from pathlib import Path
 
+import json5
 import requests
 
 
@@ -169,7 +170,7 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
 
     try:
         with open(remapper_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            data = json5.load(f)
 
         for entry in data:
             rating_key = entry.get("ratingKey")
@@ -197,7 +198,8 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
         return _track_remapper
 
     except Exception as e:
-        print(f"Warning: Could not load track remapper: {e}")
+        print(f"Error: Could not load track remapper from {remapper_path}: {e}")
+        print("  The remapper file will be ignored. Fix the syntax error and try again.")
         _track_remapper_loaded = True
         return _track_remapper
 
