@@ -108,50 +108,6 @@ def parse_keys(keys_arg: str, files_path: Path) -> list[str]:
     return keys
 
 
-def update_manifest(manifest_path: Path, mapping_name: str, game_name: str, tracks: list[dict]) -> None:
-    """Add custom game to plex-manifest.json."""
-    # Load existing manifest or create new
-    if manifest_path.exists():
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-    else:
-        manifest = {"games": []}
-
-    # Ensure games is a list (migrate from old format if needed)
-    if "games" not in manifest or not isinstance(manifest.get("games"), list):
-        manifest = {"games": []}
-
-    # Calculate min/max years from tracks
-    years = [t.get("year") for t in tracks if t.get("year")]
-    min_date = min(years) if years else None
-    max_date = max(years) if years else None
-
-    # Build new game entry
-    game_obj = {
-        "mapping": mapping_name,
-        "name": game_name,
-        "songCount": len(tracks),
-        "matchRate": 100.0,
-    }
-    if min_date is not None:
-        game_obj["minDate"] = min_date
-    if max_date is not None:
-        game_obj["maxDate"] = max_date
-
-    # Find and update existing entry, or add new one
-    existing_idx = next((i for i, g in enumerate(manifest["games"]) if g.get("mapping") == mapping_name), None)
-    if existing_idx is not None:
-        manifest["games"][existing_idx] = game_obj
-    else:
-        manifest["games"].append(game_obj)
-
-    # Sort by mapping name
-    manifest["games"].sort(key=lambda g: g.get("mapping", ""))
-
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
-
-
 # --- Card Generation Functions (ported from songseeker-card-generator) ---
 
 def generate_qr_code(data: str, file_path: str, icon_path: str = None, icon_cache: dict = None) -> None:
@@ -496,10 +452,6 @@ def main():
 
     print(f"\nMapping saved to: {mapping_path}")
 
-    # Update manifest
-    update_manifest(args.manifest_path, mapping_id, game_name, all_tracks)
-    print(f"Manifest updated: {args.manifest_path}")
-
     # Generate cards PDFs (filename derived from game name)
     cards_pdf_filename = f"{slugify(game_name)}-cards.pdf"
     cards_pdf_path = args.files_path / cards_pdf_filename
@@ -539,7 +491,8 @@ def main():
         print(f"  ⚠️ Warnings: {len(warned_tracks)} tracks (Instrumental/Live versions)")
     print(f"  Mapping: {mapping_path}")
     print(cards_summary)
-    print("=" * 40 + "\n")
+    print("=" * 40)
+    print("\nHint: Run 'poetry run update-manifest' to update the manifest.\n")
 
 
 if __name__ == "__main__":

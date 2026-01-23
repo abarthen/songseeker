@@ -96,76 +96,49 @@ To enable Plex, create `plex-config.json` in the root:
   "token": "YOUR_PLEX_TOKEN",
   "files-path": "/path/to/hitster/files",
   "remapper-filename": "plex-remapper.json",
-  "manifest-filename": "plex-manifest.json"
+  "manifest-filename": "plex-manifest.json",
+  "game-registry-filename": "game-registry.json"
 }
 ```
 
-The `files-path`, `remapper-filename`, and `manifest-filename` fields are used by the tools (not the web app). All tool file parameters accept filenames only, resolved from `files-path`.
+The `files-path` and filename fields are used by the tools (not the web app). All tool file parameters accept filenames only, resolved from `files-path`. The `game-registry.json` maps mapping IDs to display names and determines which mappings are included in the manifest.
 
 **Card ID Normalization:**
 - Card IDs are normalized by parsing as integer (removes leading zeros)
 - e.g., "00257" matches "257" in the mapping
 
-### Plex Mapper Tool (tools/)
+### Plex Mapper Tools (tools/)
 
-Python tool to generate Plex mappings and download missing songs.
+Python tools to generate and maintain Plex mappings. Located in `tools/plex_mapper/`.
 
-**Location:** `tools/plex_mapper/`
+**Workflow:**
+```
+1. Create mapping     → plex-mapper (from CSV) or custom-game (from playlist/keys)
+2. Enrich mapping     → mapping-tools --enrich
+3. Check mappings     → check-mappings (against Plex or playlist)
+4. Fix missing        → check-mappings --fix
+5. Validate years     → validate-years (against MusicBrainz)
+6. Update manifest    → update-manifest
+```
 
-**Key files:**
-- `main.py` - Main script with Plex search and yt-dlp download
-- `pyproject.toml` - Poetry configuration
+**Available tools:**
+| Tool | Purpose |
+|------|---------|
+| `plex-mapper` | Create mappings from Hitster CSV files by searching Plex |
+| `custom-game` | Create custom games from Plex rating keys or playlists |
+| `mapping-tools` | Enrich mapping files with additional metadata |
+| `check-mappings` | Verify mappings against Plex or a playlist |
+| `validate-years` | Validate year values against MusicBrainz database |
+| `update-manifest` | Regenerate manifest from existing mapping files |
 
-**Features:**
-- Searches Plex library for songs with year matching (exact by default, configurable tolerance with `--year-tolerance`)
-- Incremental matching (skips already-matched songs by default, use `--rematch` to re-match all)
-- Generates `plex-mapping-{lang}.json` for the web app
-- Generates `plex-manifest.json` with available mappings, game edition names, and match rates
+**Key features:**
+- Searches Plex library for songs with year matching (configurable tolerance)
+- Incremental matching (skips already-matched songs by default)
 - Downloads missing songs from YouTube with metadata embedded
-- Plex-friendly folder structure: `Artist/Song Title/Song Title (Year).mp3`
-- Artist/title normalization handles accents (ä→a, é→e) and ligatures (æ→ae, œ→oe)
-- Title normalization removes version suffixes like "(Remaster)", "(Extended Version)", etc.
-- Track remapper (`plex-remapper.json`) allows overriding year/artist/title for specific tracks
+- Track remapper (`plex-remapper.json`) allows overriding year/artist/title
+- Title normalization removes version suffixes like "(Remaster)", "(Extended Version)"
 
-See `tools/README.md` for usage instructions.
-
-### Custom Game Creator (tools/)
-
-Create custom Hitster-style games from Plex rating keys or playlists.
-
-**Location:** `tools/plex_mapper/custom_game.py`
-
-**Features:**
-- Input: List of Plex rating keys (comma-separated or from file) or a Plex playlist
-- Output: Mapping JSON, updated manifest, and printable PDF cards (auto-named from game name)
-- Cards contain QR codes with `plex:{ratingKey}` format
-- Invalid rating keys are skipped with a warning
-
-**Usage:**
-```bash
-poetry run custom-game --name "80s Classics" --mapping "80s-classics" --playlist "My 80s Playlist"
-poetry run custom-game --name "Party Mix" --mapping "party-mix" --keys "12345,67890"
-```
-
-### Plex Scan Tool (tools/)
-
-Trigger targeted Plex library scans on specific folders (faster than full library scan).
-
-**Location:** `tools/plex_mapper/plex_scan.py`
-
-**Features:**
-- Scan specific folders instead of entire library
-- Auto-detects library section if only one exists
-- Supports relative paths (converted to absolute using library root)
-- Works with any library type (Music, Movies, etc.)
-
-**Usage:**
-```bash
-poetry run plex-scan -s Music "Unsorted/Artist Name/Album"
-poetry run plex-scan --list-sections
-```
-
-**Note:** The `--force` flag can trigger broader metadata refreshes than intended. Plex's targeted scan API has some quirks - if files aren't being picked up, sometimes a manual scan from the Plex UI works better.
+See `tools/README.md` for detailed usage instructions.
 
 ## Related Repositories
 

@@ -18,10 +18,10 @@ Pillow = ">=10.0.0"
 [tool.poetry.scripts]
 plex-mapper = "plex_mapper.main:main"
 custom-game = "plex_mapper.custom_game:main"
-plex-scan = "plex_mapper.plex_scan:main"
-validate-years = "plex_mapper.validate_years:main"
-check-missing = "plex_mapper.check_missing:main"
 mapping-tools = "plex_mapper.mapping_tools:main"
+check-mappings = "plex_mapper.check_mappings:main"
+validate-years = "plex_mapper.validate_years:main"
+update-manifest = "plex_mapper.manifest:main"
 
 [build-system]
 requires = ["poetry-core"]

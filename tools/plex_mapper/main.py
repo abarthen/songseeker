@@ -249,109 +249,6 @@ def parse_csv(csv_path: str) -> tuple[list[str], list[list[str]]]:
     return headers, data_rows
 
 
-def load_playlists_csv(playlists_path: Path) -> dict[str, str]:
-    """Load playlists.csv and return a mapping of lang -> game name."""
-    if not playlists_path.exists():
-        return {}
-
-    games = {}
-    try:
-        with open(playlists_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-
-        # Skip header row
-        for row in rows[1:]:
-            if len(row) >= 2:
-                # hitster-de.csv -> de, hitster-de-aaaa0007.csv -> de-aaaa0007
-                csv_file = row[0]
-                game_name = row[1].strip()
-                lang = csv_file.replace("hitster-", "").replace(".csv", "")
-                games[lang] = game_name
-    except Exception as e:
-        print(f"Warning: Could not read playlists.csv: {e}")
-
-    return games
-
-
-def update_manifest(output_dir: Path, playlists_dir: Path = None, manifest_path: Path = None) -> None:
-    """Update plex-manifest.json with list of game objects including date ranges."""
-    if manifest_path is None:
-        manifest_path = output_dir / "plex-manifest.json"
-
-    # Find all plex-mapping-*.json files in the manifest's directory (or output_dir)
-    scan_dir = manifest_path.parent if manifest_path else output_dir
-    mapping_files = list(scan_dir.glob("plex-mapping-*.json"))
-
-    # Load existing manifest to preserve custom game names
-    existing_names = {}
-    if manifest_path.exists():
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                existing_manifest = json.load(f)
-            for game in existing_manifest.get("games", []):
-                if game.get("mapping") and game.get("name"):
-                    existing_names[game["mapping"]] = game["name"]
-        except (json.JSONDecodeError, IOError):
-            pass
-
-    # Load game names from playlists.csv if available
-    game_names = {}
-    if playlists_dir:
-        playlists_path = playlists_dir / "playlists.csv"
-        game_names = load_playlists_csv(playlists_path)
-
-    # Build list of game objects
-    games_list = []
-    for f in mapping_files:
-        # plex-mapping-de.json -> de
-        mapping_id = f.stem.replace("plex-mapping-", "")
-
-        # Calculate stats from mapping file
-        try:
-            with open(f, "r", encoding="utf-8") as mf:
-                mapping = json.load(mf)
-            total = len(mapping)
-            matched = sum(1 for v in mapping.values() if v is not None)
-            match_rate = round(matched / total * 100, 1) if total > 0 else 0
-
-            # Calculate min/max years from matched tracks
-            years = [v.get("year") for v in mapping.values() if v is not None and v.get("year")]
-            min_date = min(years) if years else None
-            max_date = max(years) if years else None
-        except (json.JSONDecodeError, IOError):
-            match_rate = 0
-            total = 0
-            min_date = None
-            max_date = None
-
-        # Priority: playlists.csv > existing manifest > fallback
-        game_name = game_names.get(mapping_id) or existing_names.get(mapping_id) or f"Unknown ({mapping_id})"
-
-        game_obj = {
-            "mapping": mapping_id,
-            "name": game_name,
-            "songCount": total,
-            "matchRate": match_rate,
-        }
-        if min_date is not None:
-            game_obj["minDate"] = min_date
-        if max_date is not None:
-            game_obj["maxDate"] = max_date
-
-        games_list.append(game_obj)
-
-    # Sort by mapping name
-    games_list.sort(key=lambda g: g["mapping"])
-
-    manifest = {"games": games_list}
-
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
-
-    print(f"Updated manifest: {manifest_path} ({len(games_list)} games)")
-
-
 def download_song(url: str, artist: str, title: str, year: str, output_dir: Path, cookies: str = None, debug: bool = False) -> bool:
     """Download a song from YouTube with proper metadata."""
     try:
@@ -596,9 +493,6 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
 
-    # Update manifest.json to list available mappings (pass CSV dir for playlists.csv)
-    update_manifest(output_path.parent, csv_path.parent, args.manifest_path)
-
     # Download missing songs if requested
     if args.download and missing_songs:
         download_dir = Path(args.download_dir) if args.download_dir else Path("downloads")
@@ -647,7 +541,8 @@ def main():
     print(f"  Total:         {len(songs)}")
     print(f"  Match rate:    {(found / len(songs) * 100):.1f}%")
     print(f"\nMapping saved to: {output_path}")
-    print("=" * 40 + "\n")
+    print("=" * 40)
+    print("\nHint: Run 'poetry run update-manifest' to update the manifest.\n")
 
 
 if __name__ == "__main__":

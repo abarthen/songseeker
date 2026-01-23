@@ -304,7 +304,8 @@ def normalize_title(title: str) -> str:
 def load_plex_config(config_path: Path) -> dict:
     """Load full config from plex-config.json.
 
-    Returns dict with keys: serverUrl, token, files_path, remapper_path, manifest_path
+    Returns dict with keys: serverUrl, token, files_path, remapper_path, manifest_path,
+    game_registry_path
     """
     if not config_path.exists():
         return {}
@@ -330,6 +331,10 @@ def load_plex_config(config_path: Path) -> dict:
             manifest_filename = config.get("manifest-filename")
             if manifest_filename:
                 result["manifest_path"] = files_path / manifest_filename
+
+            game_registry_filename = config.get("game-registry-filename")
+            if game_registry_filename:
+                result["game_registry_path"] = files_path / game_registry_filename
 
         return result
     except (json.JSONDecodeError, IOError) as e:
