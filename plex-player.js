@@ -102,7 +102,7 @@ export class PlexPlayer {
 
     /**
      * Cue a track for playback (load without playing)
-     * @param {object} trackInfo - Track info from mapping { ratingKey, title, artist, partKey }
+     * @param {object} trackInfo - Track info from mapping { ratingKey, title, artist }
      */
     async cueTrack(trackInfo) {
         if (!this.isConfigured()) {
@@ -112,14 +112,8 @@ export class PlexPlayer {
 
         this.currentTrack = trackInfo;
 
-        // If we have a partKey, use it directly
-        if (trackInfo.partKey) {
-            this.audioElement.src = this._buildStreamUrl(trackInfo.partKey);
-            this.audioElement.load();
-            return;
-        }
-
-        // Otherwise, fetch track details to get the partKey
+        // Always fetch track details from Plex using ratingKey to get the current partKey
+        // (partKey in mapping is only for stable ID purposes, not for playback)
         try {
             const trackDetails = await this._fetchTrackDetails(trackInfo.ratingKey);
             if (trackDetails && trackDetails.partKey) {

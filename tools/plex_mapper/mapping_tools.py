@@ -80,6 +80,8 @@ def enrich_mapping(
                 changes.append("artist")
             if new_track.get("title") != entry.get("title"):
                 changes.append("title")
+            if new_track.get("partKey") != entry.get("partKey"):
+                changes.append("partKey")
 
         return card_id, new_track, entry, changes
 
