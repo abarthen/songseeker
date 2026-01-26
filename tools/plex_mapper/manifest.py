@@ -18,6 +18,8 @@ import json
 import sys
 from pathlib import Path
 
+import json5
+
 from .plex_api import load_plex_config
 
 
@@ -36,8 +38,8 @@ def load_game_registry(registry_path: Path) -> dict[str, str]:
 
     try:
         with open(registry_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
+            return json5.load(f)
+    except (json5.JSON5DecodeError, IOError) as e:
         print(f"Warning: Could not read game registry: {e}")
         return {}
 
@@ -50,7 +52,7 @@ def calculate_mapping_stats(mapping_path: Path) -> dict | None:
     """
     try:
         with open(mapping_path, "r", encoding="utf-8") as f:
-            mapping = json.load(f)
+            mapping = json5.load(f)
 
         total = len(mapping)
         matched = sum(1 for v in mapping.values() if v is not None)

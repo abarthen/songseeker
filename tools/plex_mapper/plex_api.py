@@ -43,6 +43,7 @@ def resolve_plex_credentials(args, config_attr: str = "config") -> None:
     - server: Plex server URL
     - token: Plex authentication token
     - files_path: Base directory for all mapping files
+    - csv_files_path: Directory for CSV files (defaults to files_path)
     - remapper_path: Full path to remapper JSON
     - manifest_path: Full path to manifest JSON
 
@@ -62,6 +63,7 @@ def resolve_plex_credentials(args, config_attr: str = "config") -> None:
 
     # Set file paths from config
     args.files_path = config.get("files_path")
+    args.csv_files_path = config.get("csv_files_path")
     args.remapper_path = config.get("remapper_path")
     args.manifest_path = config.get("manifest_path")
 
@@ -304,8 +306,8 @@ def normalize_title(title: str) -> str:
 def load_plex_config(config_path: Path) -> dict:
     """Load full config from plex-config.json.
 
-    Returns dict with keys: serverUrl, token, files_path, remapper_path, manifest_path,
-    game_registry_path
+    Returns dict with keys: serverUrl, token, files_path, csv_files_path, remapper_path,
+    manifest_path, game_registry_path
     """
     if not config_path.exists():
         return {}
@@ -335,6 +337,14 @@ def load_plex_config(config_path: Path) -> dict:
             game_registry_filename = config.get("game-registry-filename")
             if game_registry_filename:
                 result["game_registry_path"] = files_path / game_registry_filename
+
+        # CSV files can be in a separate directory
+        csv_files_path = config.get("csv-files-path")
+        if csv_files_path:
+            result["csv_files_path"] = Path(csv_files_path)
+        elif files_path:
+            # Fall back to files_path if csv-files-path not specified
+            result["csv_files_path"] = files_path
 
         return result
     except (json.JSONDecodeError, IOError) as e:
@@ -514,3 +524,92 @@ def get_playlist_tracks(server_url: str, token: str, playlist_key: str, debug: b
         if debug:
             print(f"  DEBUG: Error fetching playlist tracks: {e}")
         return []
+
+
+def get_machine_identifier(server_url: str, token: str, debug: bool = False) -> str | None:
+    """Get the machine identifier from the Plex server.
+
+    Required for creating playlists via the API.
+    """
+    try:
+        response = plex_request(f"{server_url}/", token)
+        machine_id = response.get("MediaContainer", {}).get("machineIdentifier")
+        if debug:
+            print(f"  DEBUG: Machine identifier: {machine_id}")
+        return machine_id
+    except Exception as e:
+        if debug:
+            print(f"  DEBUG: Error getting machine identifier: {e}")
+        return None
+
+
+def create_playlist(
+    server_url: str,
+    token: str,
+    title: str,
+    rating_keys: list[str],
+    machine_id: str = None,
+    debug: bool = False
+) -> str | None:
+    """Create a new Plex audio playlist with the given tracks.
+
+    Args:
+        server_url: Plex server URL
+        token: Plex authentication token
+        title: Playlist title
+        rating_keys: List of track rating keys to add
+        machine_id: Server machine identifier (fetched automatically if not provided)
+        debug: Enable debug output
+
+    Returns:
+        The new playlist's ratingKey on success, None on failure.
+    """
+    if not rating_keys:
+        print("Error: No rating keys provided")
+        return None
+
+    # Get machine identifier if not provided
+    if not machine_id:
+        machine_id = get_machine_identifier(server_url, token, debug)
+        if not machine_id:
+            print("Error: Could not get server machine identifier")
+            return None
+
+    try:
+        # Build the URI for the tracks
+        keys_str = ",".join(str(k) for k in rating_keys)
+        uri = f"server://{machine_id}/com.plexapp.plugins.library/library/metadata/{keys_str}"
+
+        # Create the playlist
+        url = f"{server_url}/playlists"
+        headers = {"Accept": "application/json"}
+        params = {
+            "X-Plex-Token": token,
+            "type": "audio",
+            "title": title,
+            "smart": "0",
+            "uri": uri,
+        }
+
+        if debug:
+            print(f"  DEBUG: Creating playlist: POST {url}")
+            print(f"  DEBUG: Title: {title}")
+            print(f"  DEBUG: Tracks: {len(rating_keys)}")
+
+        response = requests.post(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+
+        result = response.json()
+        playlist = result.get("MediaContainer", {}).get("Metadata", [{}])[0]
+        playlist_key = playlist.get("ratingKey")
+
+        if debug:
+            print(f"  DEBUG: Created playlist with ratingKey: {playlist_key}")
+
+        return playlist_key
+
+    except Exception as e:
+        if debug:
+            print(f"  DEBUG: Error creating playlist: {e}")
+        print(f"Error: Failed to create playlist: {e}")
+        return None

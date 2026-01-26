@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+import json5
 import requests
 
 from .plex_api import normalize_for_comparison, resolve_path, resolve_plex_credentials
@@ -402,7 +403,7 @@ def parse_args():
 def load_tracks_from_report(report_path: Path) -> dict:
     """Convert a report JSON back to a mapping-like structure for re-validation."""
     with open(report_path, "r", encoding="utf-8") as f:
-        report = json.load(f)
+        report = json5.load(f)
 
     # Convert report entries to mapping format
     mapping = {}
@@ -425,7 +426,7 @@ def apply_report_to_remapper(report_path: Path, remapper_path: Path, debug: bool
     """
     # Load report
     with open(report_path, "r", encoding="utf-8") as f:
-        report = json.load(f)
+        report = json5.load(f)
 
     if not report:
         print("Report is empty, nothing to apply.")
@@ -434,7 +435,7 @@ def apply_report_to_remapper(report_path: Path, remapper_path: Path, debug: bool
     # Load existing remapper or start fresh
     if remapper_path.exists():
         with open(remapper_path, "r", encoding="utf-8") as f:
-            remapper = json.load(f)
+            remapper = json5.load(f)
         print(f"Loaded {len(remapper)} existing entries from {remapper_path.name}")
     else:
         remapper = []
@@ -522,7 +523,7 @@ def main():
             print(f"Error: Mapping file not found: {input_path}", file=sys.stderr)
             sys.exit(1)
         with open(input_path, "r", encoding="utf-8") as f:
-            mapping = json.load(f)
+            mapping = json5.load(f)
         print(f"Loaded {len(mapping)} tracks from mapping file")
     else:
         input_path = resolve_path(args, args.report)

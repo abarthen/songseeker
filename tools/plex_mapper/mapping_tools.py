@@ -18,6 +18,8 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import json5
+
 from .plex_api import (
     fetch_plex_track,
     load_track_remapper,
@@ -44,7 +46,7 @@ def enrich_mapping(
         sys.exit(1)
 
     with open(mapping_path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
+        mapping = json5.load(f)
 
     # Get all entries with rating keys
     entries_with_keys = [

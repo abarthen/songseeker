@@ -29,6 +29,8 @@ but now exist are automatically recovered (missing flag removed).
 import argparse
 import json
 import sys
+
+import json5
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -61,7 +63,7 @@ def check_mapping_against_plex(
         return 0, 0
 
     with open(mapping_path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
+        mapping = json5.load(f)
 
     # Get all entries with rating keys
     entries_with_keys = [
@@ -159,7 +161,7 @@ def check_mapping_against_playlist(
         return 0, 0
 
     with open(mapping_path, "r", encoding="utf-8") as f:
-        mapping = json.load(f)
+        mapping = json5.load(f)
 
     mapping_keys = {
         track["ratingKey"]: (card_id, track)
@@ -201,7 +203,7 @@ def load_game_registry(config: dict) -> dict[str, str]:
         sys.exit(1)
 
     with open(registry_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return json5.load(f)
 
 
 def parse_args():

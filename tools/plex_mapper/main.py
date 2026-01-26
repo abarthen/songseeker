@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+import json5
 import requests
 
 from .plex_api import (
@@ -358,7 +359,7 @@ def main():
     server_url = args.server.rstrip("/")
 
     # Resolve CSV path
-    csv_path = args.files_path / args.csv
+    csv_path = args.csv_files_path / args.csv
     if not csv_path.exists():
         print(f"Error: CSV file not found: {csv_path}")
         sys.exit(1)
@@ -395,10 +396,10 @@ def main():
     if (args.id or not args.rematch) and output_path.exists():
         try:
             with open(output_path, "r", encoding="utf-8") as f:
-                existing_mapping = json.load(f)
+                existing_mapping = json5.load(f)
             matched_count = sum(1 for v in existing_mapping.values() if v is not None)
             print(f"\nLoaded existing mapping: {matched_count} matched, {len(existing_mapping) - matched_count} unmatched")
-        except (json.JSONDecodeError, IOError) as e:
+        except (json5.JSON5DecodeError, IOError) as e:
             print(f"Warning: Could not load existing mapping: {e}")
 
     # Process each song

@@ -16,6 +16,8 @@ import json
 import os
 import re
 import sys
+
+import json5
 import textwrap
 from io import BytesIO
 from pathlib import Path
@@ -322,7 +324,7 @@ def main():
 
         # Load existing mapping
         with open(extend_path, "r", encoding="utf-8") as f:
-            existing_mapping = json.load(f)
+            existing_mapping = json5.load(f)
 
         # Extract mapping_id from filename (e.g., plex-mapping-de-custom.json -> de-custom)
         filename = extend_path.name
@@ -337,7 +339,7 @@ def main():
         game_name = args.name
         if not game_name and args.manifest_path and args.manifest_path.exists():
             with open(args.manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
+                manifest = json5.load(f)
             game_name = manifest.get("games", {}).get(mapping_id)
 
         if not game_name:

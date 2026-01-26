@@ -14,6 +14,7 @@ yt-dlp = "*"
 reportlab = ">=4.0.0"
 qrcode = {version = ">=7.4.0", extras = ["pil"]}
 Pillow = ">=10.0.0"
+playwright = ">=1.40.0"
 
 [tool.poetry.scripts]
 plex-mapper = "plex_mapper.main:main"
@@ -22,6 +23,8 @@ mapping-tools = "plex_mapper.mapping_tools:main"
 check-mappings = "plex_mapper.check_mappings:main"
 validate-years = "plex_mapper.validate_years:main"
 update-manifest = "plex_mapper.manifest:main"
+create-playlist = "plex_mapper.create_playlist:main"
+ytm-adder = "youtube_music_adder.ytm_adder:main"
 
 [build-system]
 requires = ["poetry-core"]
