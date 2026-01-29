@@ -65,6 +65,11 @@ def check_mapping_against_plex(
     with open(mapping_path, "r", encoding="utf-8") as f:
         mapping = json5.load(f)
 
+    # Report unmatched entries (null values)
+    unmatched = [card_id for card_id, entry in mapping.items() if entry is None]
+    if unmatched:
+        print(f"  UNMATCHED: {len(unmatched)} cards have no mapping: {', '.join(f'#{c}' for c in unmatched)}")
+
     # Get all entries with rating keys
     entries_with_keys = [
         (card_id, entry)
@@ -146,7 +151,7 @@ def check_mapping_against_plex(
         with open(mapping_path, "w", encoding="utf-8") as f:
             json.dump(mapping, f, indent=2)
 
-    return total, len(missing)
+    return total, len(missing) + len(unmatched)
 
 
 def check_mapping_against_playlist(

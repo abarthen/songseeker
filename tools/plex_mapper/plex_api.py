@@ -192,6 +192,22 @@ def load_track_remapper(remapper_path: Path = None) -> dict[str, dict]:
                 print(f"  ratingKey {key}: entries at index {first_idx} and {dup_idx}")
             sys.exit(1)
 
+        # Validate that all ratingKeys are strings (not numbers)
+        non_string_keys: list[tuple[int, str, object]] = []
+        for idx, entry in enumerate(data):
+            rating_key = entry.get("ratingKey")
+            if rating_key is not None and not isinstance(rating_key, str):
+                non_string_keys.append((idx, "ratingKey", rating_key))
+            replace_key = entry.get("replaceData", {}).get("ratingKey")
+            if replace_key is not None and not isinstance(replace_key, str):
+                non_string_keys.append((idx, "replaceData.ratingKey", replace_key))
+
+        if non_string_keys:
+            print(f"Error: Non-string ratingKeys found in {remapper_path.name}:")
+            for idx, field, value in non_string_keys:
+                print(f"  Entry {idx}: {field} = {value} ({type(value).__name__}, should be string)")
+            sys.exit(1)
+
         for entry in data:
             rating_key = entry.get("ratingKey")
             replace_data = entry.get("replaceData", {})
