@@ -23,14 +23,14 @@ import json5
 from .plex_api import load_plex_config
 
 
-def load_game_registry(registry_path: Path) -> dict[str, str]:
-    """Load game-registry.json and return a mapping of suffix -> game name.
+def load_game_registry(registry_path: Path) -> dict[str, dict]:
+    """Load game-registry.json and return a mapping of suffix -> game info.
 
-    Example content:
-    {
-        "de": "Hitster Deutschland",
-        "de-aaaa0007": "Hitster Deutschland Schlagerparty"
-    }
+    Supports both formats:
+    - New: {"de": {"name": "Hitster Deutschland", "playlist": "Hitster DE"}}
+    - Legacy: {"de": "Hitster Deutschland"}
+
+    Returns dict of mapping_id -> {"name": str, "playlist": str | None}.
     """
     if not registry_path.exists():
         print(f"Warning: Game registry not found: {registry_path}")
@@ -38,7 +38,15 @@ def load_game_registry(registry_path: Path) -> dict[str, str]:
 
     try:
         with open(registry_path, "r", encoding="utf-8") as f:
-            return json5.load(f)
+            raw = json5.load(f)
+
+        registry = {}
+        for key, value in raw.items():
+            if isinstance(value, str):
+                registry[key] = {"name": value}
+            else:
+                registry[key] = value
+        return registry
     except (json5.JSON5DecodeError, IOError) as e:
         print(f"Warning: Could not read game registry: {e}")
         return {}
@@ -92,7 +100,8 @@ def generate_manifest(scan_dir: Path, game_registry: dict[str, str], debug: bool
 
     games_list = []
 
-    for mapping_id, game_name in game_registry.items():
+    for mapping_id, game_info in game_registry.items():
+        game_name = game_info["name"]
         mapping_path = scan_dir / f"plex-mapping-{mapping_id}.json"
 
         if not mapping_path.exists():

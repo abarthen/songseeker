@@ -22,6 +22,7 @@ import json5
 
 from .plex_api import (
     fetch_plex_track,
+    load_plex_config,
     load_track_remapper,
     resolve_path,
     resolve_plex_credentials,
@@ -157,9 +158,10 @@ def parse_args():
         description="Tools for working with plex-mapping-*.json files"
     )
 
-    # Required: mapping filename
+    # Optional: mapping filename (if omitted, processes all from game-registry.json)
     parser.add_argument(
-        "--mapping", "-m", required=True, help="Mapping filename (e.g., plex-mapping-de.json)"
+        "--mapping", "-m",
+        help="Mapping filename (e.g., plex-mapping-de.json). If omitted, processes all in game-registry.json",
     )
 
     # Operations
@@ -196,6 +198,36 @@ def parse_args():
     return parser.parse_args()
 
 
+def load_game_registry(config: dict) -> dict[str, dict]:
+    """Load game registry from config.
+
+    Supports both formats:
+    - New: {"de": {"name": "Hitster Deutschland", "playlist": "Hitster DE"}}
+    - Legacy: {"de": "Hitster Deutschland"}
+
+    Returns dict of mapping_id -> {"name": str, ...}.
+    """
+    registry_path = config.get("game_registry_path")
+    if not registry_path:
+        print("Error: game-registry-filename not set in plex-config.json")
+        sys.exit(1)
+
+    if not registry_path.exists():
+        print(f"Error: Game registry not found: {registry_path}")
+        sys.exit(1)
+
+    with open(registry_path, "r", encoding="utf-8") as f:
+        raw = json5.load(f)
+
+    registry = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            registry[key] = {"name": value}
+        else:
+            registry[key] = value
+    return registry
+
+
 def main():
     args = parse_args()
 
@@ -207,12 +239,39 @@ def main():
     test_plex_connection(server_url, args.token)
     print()
 
-    # Resolve mapping path
-    mapping_path = resolve_path(args, args.mapping)
-
     # Load remapper from config path
     load_track_remapper(args.remapper_path)
-    enrich_mapping(server_url, args.token, mapping_path, args.debug, args.workers)
+
+    if args.mapping:
+        # Single mapping
+        mapping_path = resolve_path(args, args.mapping)
+        enrich_mapping(server_url, args.token, mapping_path, args.debug, args.workers)
+    else:
+        # All mappings from game-registry.json
+        config_path = (
+            Path(args.config)
+            if getattr(args, "config", None)
+            else Path(__file__).parent.parent.parent / "plex-config.json"
+        )
+        config = load_plex_config(config_path)
+        game_registry = load_game_registry(config)
+        files_path = config.get("files_path")
+
+        if not files_path:
+            print("Error: files-path not set in plex-config.json")
+            sys.exit(1)
+
+        print(f"Enriching {len(game_registry)} mappings from game-registry.json...\n")
+
+        for mapping_id in game_registry.keys():
+            mapping_path = files_path / f"plex-mapping-{mapping_id}.json"
+
+            if not mapping_path.exists():
+                print(f"Skipping {mapping_id}: file not found")
+                continue
+
+            enrich_mapping(server_url, args.token, mapping_path, args.debug, args.workers)
+            print()
 
 
 if __name__ == "__main__":

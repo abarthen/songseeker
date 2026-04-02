@@ -196,8 +196,15 @@ def check_mapping_against_playlist(
     return len(mapping_keys), len(missing_keys)
 
 
-def load_game_registry(config: dict) -> dict[str, str]:
-    """Load game registry from config."""
+def load_game_registry(config: dict) -> dict[str, dict]:
+    """Load game registry from config.
+
+    Supports both formats:
+    - New: {"de": {"name": "Hitster Deutschland", "playlist": "Hitster DE"}}
+    - Legacy: {"de": "Hitster Deutschland"}
+
+    Returns dict of mapping_id -> {"name": str, ...}.
+    """
     registry_path = config.get("game_registry_path")
     if not registry_path:
         print("Error: game-registry-filename not set in plex-config.json")
@@ -208,7 +215,15 @@ def load_game_registry(config: dict) -> dict[str, str]:
         sys.exit(1)
 
     with open(registry_path, "r", encoding="utf-8") as f:
-        return json5.load(f)
+        raw = json5.load(f)
+
+    registry = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            registry[key] = {"name": value}
+        else:
+            registry[key] = value
+    return registry
 
 
 def parse_args():

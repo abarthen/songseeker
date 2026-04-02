@@ -10,19 +10,12 @@ Tools for generating Plex mappings and custom games for SongSeeker.
 | **custom-game** | Create custom games from Plex rating keys or playlists |
 | **mapping-tools** | Enrich mapping files with additional metadata |
 | **check-mappings** | Verify mappings against Plex or a playlist |
+| **compare-mapping** | Compare mapping JSON against its Hitster CSV (year, artist, title) |
+| **lock-years** | Lock mapping years into plex-remapper.json to prevent drift |
 | **validate-years** | Validate year values against MusicBrainz database |
+| **create-playlist** | Create a Plex playlist from a mapping file |
 | **update-manifest** | Regenerate manifest from existing mapping files |
-
-## Workflow
-
-```
-1. Create mapping     → plex-mapper (from CSV) or custom-game (from playlist/keys)
-2. Enrich mapping     → mapping-tools --enrich
-3. Check mapping      → check-mappings (against Plex or playlist)
-4. Fix missing        → check-mappings --fix
-5. Validate years     → validate-years (against MusicBrainz)
-6. Update manifest    → update-manifest
-```
+| **ytm-adder** | Add songs to YouTube Music playlist using ISRC codes from CSV |
 
 ## Setup
 
@@ -35,6 +28,15 @@ poetry install
 
 - **deno** (JavaScript runtime for yt-dlp PO Token handling): `winget install DenoLand.Deno`
 - **ffmpeg** (audio conversion): `winget install ffmpeg`
+
+### Related: music-tagger
+
+The [music-tagger](../../music-tagger) project (separate repo at `c:\Users\andreas\Projects\music-tagger`) assigns track numbers to music files based on file modification date. This is useful after bulk-downloading songs, since the downloader adds them in order. Run it before Plex scans so track numbers are correct:
+
+```bash
+cd c:/Users/andreas/Projects/music-tagger
+poetry run music-tagger /path/to/music/root --newer-than 2026-04-01 --dry-run --verbose
+```
 
 ## Configuration
 
@@ -61,6 +63,118 @@ All tools read settings from `../plex-config.json` (relative to the tools folder
 | `game-registry-filename` | Game registry file mapping IDs to display names |
 
 All file parameters accept **filenames only** (not paths). Files are resolved relative to `files-path`.
+
+---
+
+## Workflows
+
+### Adding an Official Game (from Hitster CSV)
+
+Official games come with a CSV file (from [songseeker-hitster-playlists](https://github.com/andygruber/songseeker-hitster-playlists)) that maps card IDs to YouTube URLs, artist, title, year, and ISRC codes.
+
+**1. Add songs to YouTube Music playlist** (to find and download missing songs):
+
+```bash
+# Start Brave with remote debugging first:
+# "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9222
+
+poetry run ytm-adder --csv hitster-de-aaaa0039.csv --playlist "#3"
+```
+
+**2. Download missing songs** and add them to your Plex library.
+
+**3. Assign track numbers** to newly downloaded files (uses file modification date):
+
+```bash
+cd c:/Users/andreas/Projects/music-tagger
+poetry run music-tagger /path/to/music/root --newer-than 2026-04-01
+```
+
+**4. Scan Plex library**, then create/update the mapping:
+
+```bash
+poetry run plex-mapper --csv hitster-de-aaaa0039.csv --rematch
+```
+
+**5. Enrich mapping** with stable identifiers (guid, mbid):
+
+```bash
+poetry run mapping-tools --enrich --mapping plex-mapping-de-aaaa0039.json
+```
+
+**6. Compare mapping against CSV** to find year/artist/title mismatches:
+
+```bash
+poetry run compare-mapping de-aaaa0039
+```
+
+Review and fix any mismatches (manually adjust the mapping or add entries to `plex-remapper.json`).
+
+**7. Lock years** into remapper to prevent Plex metadata drift:
+
+```bash
+poetry run lock-years -m plex-mapping-de-aaaa0039.json
+```
+
+**8. Create Plex playlist** from the mapping (optional, for playback):
+
+```bash
+poetry run create-playlist -i plex-mapping-de-aaaa0039.json -n "Hitster DE AAAA0039"
+```
+
+**9. Check existing mappings** to make sure nothing broke:
+
+```bash
+poetry run check-mappings
+```
+
+**10. Update manifest:**
+
+```bash
+poetry run update-manifest
+```
+
+### Adding a Custom Game (from Plex playlist)
+
+Custom games are created from an existing Plex playlist. There is no CSV - songs are whatever is in the playlist.
+
+**1. Create game from playlist:**
+
+```bash
+poetry run custom-game --name "My Custom Game" --mapping "my-custom" --playlist "My Playlist"
+```
+
+This produces a mapping JSON and a cards PDF for printing.
+
+**2. Enrich mapping** with stable identifiers:
+
+```bash
+poetry run mapping-tools --enrich --mapping plex-mapping-my-custom.json
+```
+
+**3. Validate years** against MusicBrainz (since there's no CSV to compare against):
+
+```bash
+poetry run validate-years --mapping plex-mapping-my-custom.json --output year-report.json
+```
+
+Review the report and apply corrections:
+
+```bash
+poetry run validate-years --apply year-report.json
+```
+
+**4. Lock years** into remapper:
+
+```bash
+poetry run lock-years -m plex-mapping-my-custom.json
+```
+
+**5. Update manifest:**
+
+```bash
+poetry run update-manifest
+```
 
 ---
 
@@ -235,6 +349,65 @@ The `mapping-tools --enrich` command also removes the `missing` flag when re-fet
 
 ---
 
+# compare-mapping
+
+Compare a plex-mapping JSON file against its corresponding Hitster CSV file. Reports year mismatches and warns about significant artist/title differences.
+
+## Usage
+
+```bash
+# Compare mapping against CSV
+poetry run compare-mapping de-aaaa0039
+
+# Verbose output (show all entries)
+poetry run compare-mapping de-aaaa0039 --verbose
+```
+
+Takes a mapping ID (e.g., `de-aaaa0039`) and resolves both files:
+- `plex-mapping-de-aaaa0039.json` from `files-path`
+- `hitster-de-aaaa0039.csv` from `csv-files-path` (or `files-path`)
+
+## Command Line Arguments
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `mapping_id` | | Mapping ID (positional, e.g., `de-aaaa0039`) |
+| `--config` | | Path to plex-config.json |
+| `--verbose` | `-v` | Show all entries, not just mismatches |
+
+---
+
+# lock-years
+
+Lock years from a mapping file into `plex-remapper.json`. This ensures that Plex metadata changes (e.g., remaster editions updating the year) don't affect the year shown on game cards.
+
+For each track in the mapping:
+- If the ratingKey already exists in the remapper with the same year: skip
+- If it exists with a different year: warn and skip (resolve manually)
+- Otherwise: create/update the entry with the year from the mapping
+
+Always writes artist/title to the `metadata` field. Only writes `year` to `replaceData`.
+
+## Usage
+
+```bash
+# Lock years (asks for confirmation)
+poetry run lock-years -m plex-mapping-de-aaaa0039.json
+
+# Dry run
+poetry run lock-years -m plex-mapping-de-aaaa0039.json --dry-run
+```
+
+## Command Line Arguments
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `--mapping` | `-m` | Mapping filename (required) |
+| `--dry-run` | | Show what would be done without writing |
+| `--config` | | Path to plex-config.json |
+
+---
+
 # validate-years
 
 Validate year values in mapping files against MusicBrainz database.
@@ -271,6 +444,29 @@ poetry run validate-years --apply report.json
 
 ---
 
+# create-playlist
+
+Create a Plex audio playlist from a mapping file.
+
+## Usage
+
+```bash
+poetry run create-playlist -i plex-mapping-de-aaaa0039.json -n "Hitster DE AAAA0039"
+```
+
+## Command Line Arguments
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `--input` | `-i` | Input JSON mapping filename (resolved from files-path) |
+| `--name` | `-n` | Playlist name to create |
+| `--server` | `-s` | Plex server URL (default: from config) |
+| `--token` | `-t` | Plex token (default: from config) |
+| `--config` | | Path to plex-config.json |
+| `--debug` | `-d` | Enable debug output |
+
+---
+
 # update-manifest
 
 Regenerate `plex-manifest.json` from existing mapping files.
@@ -295,6 +491,51 @@ The manifest is generated from mappings listed in `game-registry.json`. Only map
 | `--output` | `-o` | Output manifest path (default: from config) |
 | `--scan-dir` | `-s` | Directory to scan (default: from config files-path) |
 | `--debug` | `-d` | Enable debug output |
+
+---
+
+# ytm-adder
+
+Add songs/albums to a YouTube Music playlist using ISRC codes from Hitster CSV files. Uses Playwright to automate Brave browser.
+
+## Prerequisites
+
+Start Brave with remote debugging and log into YouTube Music:
+
+```bash
+"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9222
+```
+
+## Usage
+
+```bash
+# Verify connection
+poetry run ytm-adder --login
+
+# Process a CSV file
+poetry run ytm-adder --csv hitster-de-aaaa0039.csv --playlist "#3"
+
+# Resume from a specific card number
+poetry run ytm-adder --csv hitster-de-aaaa0039.csv --playlist "#3" --start-from 50
+
+# Dry run
+poetry run ytm-adder --csv hitster-de-aaaa0039.csv --playlist "#3" --dry-run
+
+# Clear progress from previous runs
+poetry run ytm-adder --clear-progress
+```
+
+## Command Line Arguments
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `--login` | | Verify browser connection |
+| `--csv` | | CSV file path containing ISRC codes |
+| `--playlist` | | Playlist name (default: `#3`) |
+| `--start-from` | | Start from this card number |
+| `--headless` | | Run browser headless |
+| `--dry-run` | | Show what would be done |
+| `--clear-progress` | | Clear saved progress |
 
 ---
 

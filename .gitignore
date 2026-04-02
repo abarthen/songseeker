@@ -146,3 +146,5 @@ tools/plex-manifest.json
 /tools/*.json
 !/tools/manifest.json
 !/tools/package.json
+
+tools/youtube_music_adder/progress.json
