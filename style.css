@@ -415,6 +415,40 @@ label {
   margin-bottom: 1rem;
 }
 
+#toggleGameEditionsButton {
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+#gameEditionsHint {
+  font-size: 0.95rem;
+  opacity: 0.85;
+  margin-bottom: 0.6rem;
+}
+
+.game-editions-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding-left: 0;
+  text-align: left;
+}
+
+.game-editions-list li {
+  display: flex;
+  align-items: center;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.4rem;
+}
+
+.game-editions-list li:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.game-editions-list label {
+  cursor: pointer;
+  font-size: 1rem;
+}
+
 #playback-duration {
   width: 3.5rem;
   font-size: 1.1rem;

@@ -47,7 +47,7 @@
         <input type="range" id="progress-bar" min="0" max="100" value="0" step="0.1">
         <span id="total-time">0:00</span>
       </div>
-      <button id="toggleSonginfoButton" class="button">Show Song Info</button>
+      <button id="toggleSonginfoButton" class="button">Reveal Song Info</button>
     </div>
 
     <div id="ratingkeyrow">Rating Key: <span id="song-ratingkey"></span></div>
@@ -102,12 +102,17 @@
           <label for="cookies">Show cookies</label>
           <span id="cookielist"></span>
           <br/>
-          <input type="checkbox" id="showGameEditions" name="showGameEditions" />
-          <label for="showGameEditions">Show available Game Editions</label>
-          <div id="gameEditionsList" style="display: none;"></div>
-          <br/>
           <button id="debugButton" class="button">Debug Scan</button>
         </div>
+      </div>
+    </div>
+
+    <button id="toggleGameEditionsButton" class="button">Show Game Editions</button>
+    <div class="settings_div" id="gameEditions_div">
+      <div class="text-block">
+        <div class="heading">Game Editions</div>
+        <div id="gameEditionsHint">Select one or more editions to play random songs from them.</div>
+        <div id="gameEditionsList"></div>
       </div>
     </div>
 

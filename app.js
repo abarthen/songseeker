@@ -8,6 +8,7 @@ let lastDecodedText = ""; // Store the last decoded text
 let currentStartTime = 0;
 let autoShowSonginfoTimer = null; // Timer for auto-showing song info
 let progressBarInterval = null; // Timer for updating progress bar
+const selectedGames = new Set(); // Game editions selected for random playback
 
 // Button state management
 // States: 'disabled' (grey, no song), 'loading' (green, loading), 'ready' (green, play),
@@ -140,6 +141,12 @@ async function loadPlexMappings() {
             console.error(`Failed to load mapping for ${lang}:`, e);
         }
     }
+    pruneSelectedGames();
+    updateStartButtonMode();
+    if (document.getElementById('gameEditions_div')?.style.display !== 'none') {
+        // Re-render if the panel happens to be open
+        updateGameEditionsList();
+    }
     updatePlexMappingStatus();
 }
 
@@ -247,12 +254,12 @@ async function handleScannedLink(decodedText) {
         clearTimeout(playbackTimer);
         playbackTimer = null;
     }
-    // Clear auto-show timer and hide song info on new scan
+    // Clear auto-show timer and reset reveal state for the new song
     if (autoShowSonginfoTimer) {
         clearTimeout(autoShowSonginfoTimer);
         autoShowSonginfoTimer = null;
     }
-    hideSongInfo();
+    resetSongInfoForNewSong();
 
     playerManager.stop();
     setButtonState('loading');
@@ -564,6 +571,11 @@ document.getElementById('qr-reader').style.display = 'none'; // Initially hide t
 setButtonState('disabled');
 
 document.getElementById('startScanButton').addEventListener('click', function() {
+    if (selectedGames.size > 0) {
+        playRandomSong();
+        return;
+    }
+    resetSongInfoForNewSong();
     document.getElementById('cancelScanButton').style.display = 'block';
     document.getElementById('qr-reader').style.display = 'block'; // Show the scanner
     qrScanner.start().catch(err => {
@@ -575,6 +587,77 @@ document.getElementById('startScanButton').addEventListener('click', function() 
         qrScanner.setInversionMode('both'); // we want to scan also for Hitster QR codes which use inverted colors
     });
 });
+
+function getSelectedTrackPool() {
+    const pool = [];
+    for (const lang of selectedGames) {
+        const mapping = plexMappingCache[lang];
+        if (!mapping) continue;
+        for (const track of Object.values(mapping)) {
+            if (track && track.ratingKey) {
+                pool.push({ track, lang });
+            }
+        }
+    }
+    return pool;
+}
+
+async function playRandomSong() {
+    if (playbackTimer) {
+        clearTimeout(playbackTimer);
+        playbackTimer = null;
+    }
+    if (autoShowSonginfoTimer) {
+        clearTimeout(autoShowSonginfoTimer);
+        autoShowSonginfoTimer = null;
+    }
+    resetSongInfoForNewSong();
+
+    playerManager.stop();
+
+    if (!isPlexConfigured()) {
+        document.getElementById('song-ratingkey').textContent = '';
+        document.getElementById('song-artist').textContent = '';
+        document.getElementById('song-title').textContent = 'Plex not configured';
+        document.getElementById('song-title').style.color = '#cc0000';
+        document.getElementById('song-year').textContent = '';
+        setButtonState('disabled');
+        return;
+    }
+
+    const pool = getSelectedTrackPool();
+    if (pool.length === 0) {
+        document.getElementById('song-ratingkey').textContent = '';
+        document.getElementById('song-artist').textContent = '';
+        document.getElementById('song-title').textContent = 'No songs in selected editions';
+        document.getElementById('song-title').style.color = '#cc0000';
+        document.getElementById('song-year').textContent = '';
+        setButtonState('disabled');
+        return;
+    }
+
+    setButtonState('loading');
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const track = pick.track;
+    console.log(`Random song from ${pick.lang}: ${track.artist} - ${track.title}`);
+
+    const plexSettings = getPlexSettings();
+    playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
+
+    document.getElementById('song-ratingkey').textContent = track.ratingKey;
+    document.getElementById('song-artist').textContent = track.artist;
+    document.getElementById('song-title').textContent = track.title;
+    document.getElementById('song-title').style.color = '';
+    document.getElementById('song-year').textContent = track.year || '';
+
+    currentStartTime = 0;
+    await playerManager.cue({ trackInfo: track });
+}
+
+function updateStartButtonMode() {
+    const btn = document.getElementById('startScanButton');
+    btn.textContent = selectedGames.size > 0 ? 'Play Random Song' : 'Start Scan';
+}
 
 document.getElementById('debugButton').addEventListener('click', function() {
     handleScannedLink("https://www.hitstergame.com/de-aaaa0012/237");
@@ -597,6 +680,18 @@ function hideSongInfo() {
         document.getElementById('titlerow').style.display = 'none';
         document.getElementById('yearrow').style.display = 'none';
     }
+}
+
+// Reset reveal state so each new song starts with info hidden,
+// regardless of whether it was revealed for the previous song.
+function resetSongInfoForNewSong() {
+    songinfoAlwaysVisible = false;
+    document.getElementById('ratingkeyrow').style.display = 'none';
+    document.getElementById('artistrow').style.display = 'none';
+    document.getElementById('titlerow').style.display = 'none';
+    document.getElementById('yearrow').style.display = 'none';
+    document.getElementById('toggleSonginfoButton').textContent = 'Reveal Song Info';
+    updateAutoShowCheckboxState();
 }
 
 function updateProgressBarVisibility() {
@@ -635,7 +730,7 @@ document.getElementById('toggleSonginfoButton').addEventListener('click', functi
         this.textContent = 'Hide Song Info';
     } else {
         hideSongInfo();
-        this.textContent = 'Show Song Info';
+        this.textContent = 'Reveal Song Info';
     }
     updateAutoShowCheckboxState();
 });
@@ -688,14 +783,16 @@ document.getElementById('cookies').addEventListener('click', function() {
     }
 });
 
-document.getElementById('showGameEditions').addEventListener('click', function() {
-    var cb = document.getElementById('showGameEditions');
-    var listEl = document.getElementById('gameEditionsList');
-    if (cb.checked == true) {
-        updateGameEditionsList();
-        listEl.style.display = 'block';
+document.getElementById('toggleGameEditionsButton').addEventListener('click', function() {
+    const panel = document.getElementById('gameEditions_div');
+    const visible = panel.style.display && panel.style.display !== 'none';
+    if (visible) {
+        panel.style.display = 'none';
+        this.textContent = 'Show Game Editions';
     } else {
-        listEl.style.display = 'none';
+        updateGameEditionsList();
+        panel.style.display = 'block';
+        this.textContent = 'Hide Game Editions';
     }
 });
 
@@ -708,8 +805,7 @@ function updateGameEditionsList() {
         return;
     }
 
-    // Build a simple list of game names with song counts, date ranges, and match rates
-    const listHtml = '<ul style="margin: 0.5rem 0; padding-left: 1.5rem; text-align: left;">' +
+    const listHtml = '<ul class="game-editions-list">' +
         gameEntries.map(([lang, name]) => {
             const count = plexSongCounts[lang];
             const countStr = count ? ` ${count} songs` : '';
@@ -717,10 +813,51 @@ function updateGameEditionsList() {
             const rangeStr = range ? ` (${range.min}-${range.max})` : '';
             const rate = plexMatchRates[lang];
             const rateStr = rate !== undefined ? ` ${rate}%` : '';
-            return `<li>${name}${countStr}${rangeStr}${rateStr}</li>`;
+            const checkboxId = `gameEdition-${lang}`;
+            const checked = selectedGames.has(lang) ? ' checked' : '';
+            const safeLang = String(lang).replace(/"/g, '&quot;');
+            return `<li><input type="checkbox" id="${checkboxId}" class="game-edition-checkbox" data-lang="${safeLang}"${checked}/><label for="${checkboxId}">${name}${countStr}${rangeStr}${rateStr}</label></li>`;
         }).join('') +
         '</ul>';
     listEl.innerHTML = listHtml;
+
+    listEl.querySelectorAll('.game-edition-checkbox').forEach(cb => {
+        cb.addEventListener('change', handleGameEditionToggle);
+    });
+}
+
+function handleGameEditionToggle(event) {
+    const lang = event.target.dataset.lang;
+    if (event.target.checked) {
+        selectedGames.add(lang);
+    } else {
+        selectedGames.delete(lang);
+    }
+    saveSelectedGames();
+    updateStartButtonMode();
+}
+
+function saveSelectedGames() {
+    const value = Array.from(selectedGames).join(',');
+    document.cookie = `selectedGames=${encodeURIComponent(value)};max-age=2592000`;
+    listCookies();
+}
+
+function loadSelectedGames() {
+    const raw = getCookieValue('selectedGames');
+    if (!raw) return;
+    const decoded = decodeURIComponent(raw);
+    if (!decoded) return;
+    decoded.split(',').filter(Boolean).forEach(lang => selectedGames.add(lang));
+}
+
+// Drop any selected games that no longer exist in the loaded manifest.
+function pruneSelectedGames() {
+    for (const lang of Array.from(selectedGames)) {
+        if (!plexGames[lang]) {
+            selectedGames.delete(lang);
+        }
+    }
 }
 
 function listCookies() {
@@ -802,5 +939,9 @@ document.getElementById('testPlexConnection').addEventListener('click', async fu
 
 window.addEventListener("DOMContentLoaded", function() {
     getCookies();
+    loadSelectedGames();
+    // Panel starts hidden; selections still apply to the Start Scan button.
+    document.getElementById('gameEditions_div').style.display = 'none';
+    updateStartButtonMode();
     loadPlexSettings();
 });
