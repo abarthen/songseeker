@@ -412,11 +412,11 @@ label {
 }
 
 #toggleSettingsButton {
+  margin-top: 0.5rem;
   margin-bottom: 1rem;
 }
 
 #toggleGameEditionsButton {
-  margin-top: 0.5rem;
   margin-bottom: 1rem;
 }
 
