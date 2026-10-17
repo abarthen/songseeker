@@ -231,10 +231,13 @@ function hasPlexMapping(lang) {
 // Plex library random playback (Plex Mode without any edition selected)
 let plexMusicSections = null; // [{ key, totalSize }], counted once and cached
 
-async function fetchPlexJson(path) {
+function plexUrl(path) {
     const separator = path.includes('?') ? '&' : '?';
-    const url = `${plexConfig.serverUrl.replace(/\/$/, '')}${path}${separator}X-Plex-Token=${plexConfig.token}`;
-    const response = await fetch(url, {
+    return `${plexConfig.serverUrl.replace(/\/$/, '')}${path}${separator}X-Plex-Token=${plexConfig.token}`;
+}
+
+async function fetchPlexJson(path) {
+    const response = await fetch(plexUrl(path), {
         headers: { 'Accept': 'application/json' }
     });
     if (!response.ok) {
@@ -285,10 +288,12 @@ async function fetchRandomLibraryTrack() {
         plexMusicSections = null;
         return null;
     }
-    return plexItemToTrack(item);
+    // List responses don't include field locks, so load the full track
+    return fetchPlexTrack(item.ratingKey);
 }
 
-// Convert Plex track metadata (fetched with includeGuids=1) to mapping-style track info
+// Convert Plex track metadata (from /library/metadata with includeGuids=1)
+// to mapping-style track info
 function plexItemToTrack(item) {
     const mbidGuid = (item.Guid || []).find(g => g.id.startsWith('mbid://'));
     return {
@@ -297,10 +302,56 @@ function plexItemToTrack(item) {
         artist: item.originalTitle || item.grandparentTitle,
         album: item.parentTitle,
         // Tracks rarely carry their own year; fall back to the album year.
-        // Unreliable either way, so it is only used if MusicBrainz has nothing.
+        // Unreliable unless locked, so otherwise only used if MusicBrainz has nothing.
         year: item.year || item.parentYear,
+        // A locked track year was verified by SongSeeker (or set by hand) and is trusted
+        yearVerified: !!item.year && (item.Field || []).some(f => f.name === 'year' && f.locked),
+        librarySectionID: item.librarySectionID,
         mbid: mbidGuid ? mbidGuid.id.slice('mbid://'.length) : undefined
     };
+}
+
+let plexYearWritesEnabled = true; // Turned off after a failed automatic write, e.g. token without edit rights
+
+// Store a year on the Plex track and lock it, so Plex keeps it and later
+// lookups can trust it. Only the track is changed, not its album.
+// Returns true on success.
+async function writePlexYear(ratingKey, librarySectionID, year) {
+    try {
+        const response = await fetch(plexUrl(
+            `/library/sections/${librarySectionID}/all?type=10&id=${encodeURIComponent(ratingKey)}&year.value=${year}&year.locked=1`),
+            { method: 'PUT' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        console.log(`Saved year ${year} to Plex track ${ratingKey}`);
+        return true;
+    } catch (e) {
+        console.error(`Saving year to Plex track ${ratingKey} failed:`, e);
+        return false;
+    }
+}
+
+// Automatic write of a verified year, subject to the "Save verified years to Plex" setting
+async function saveYearToPlex(ratingKey, librarySectionID, year) {
+    if (!plexYearWritesEnabled || !document.getElementById('saveYearsToPlex').checked) return;
+    if (!await writePlexYear(ratingKey, librarySectionID, year)) {
+        plexYearWritesEnabled = false;
+        console.error('Not saving years to Plex again this session');
+    }
+}
+
+// Edition years are the source of truth; copy them to Plex where Plex differs
+async function syncEditionYearToPlex(track) {
+    if (!track.year) return;
+    try {
+        const plexTrack = await fetchPlexTrack(track.ratingKey);
+        if (plexTrack && !(plexTrack.yearVerified && plexTrack.year === track.year)) {
+            await saveYearToPlex(plexTrack.ratingKey, plexTrack.librarySectionID, track.year);
+        }
+    } catch (e) {
+        console.error('Failed to check Plex year:', e);
+    }
 }
 
 async function fetchPlexTrack(ratingKey) {
@@ -350,7 +401,8 @@ async function fetchPlaylistTrack(playlistKey, offset) {
         delete plexPlaylistSizes[playlistKey];
         return null;
     }
-    return plexItemToTrack(item);
+    // List responses don't include field locks, so load the full track
+    return fetchPlexTrack(item.ratingKey);
 }
 
 async function testPlexConnection() {
@@ -817,6 +869,8 @@ function songInfoForPlexTrack(plexTrack) {
 }
 
 let currentSongId = 0; // Incremented per song so late year lookups don't overwrite a newer song
+let editableYearTrack = null; // Plex track whose year can be edited, null for edition songs
+const manuallySetYears = new Set(); // ratingKeys edited this session; pending lookups must not overwrite them
 
 /**
  * Show song info for a new song.
@@ -828,6 +882,8 @@ let currentSongId = 0; // Incremented per song so late year lookups don't overwr
  */
 function displayTrack({ track, edition = null, conflicts = [], scannedKey = null }) {
     const songId = ++currentSongId;
+    // Edition years come from git and would be overwritten on the next release
+    setEditableYearTrack(edition ? null : track);
 
     document.getElementById('song-ratingkey').textContent = scannedKey && scannedKey !== track.ratingKey
         ? `${track.ratingKey} (card: ${scannedKey})`
@@ -846,16 +902,29 @@ function displayTrack({ track, edition = null, conflicts = [], scannedKey = null
 
     if (edition) {
         setSongYear(track.year || '', '');
+        syncEditionYearToPlex(track);
+        return;
+    }
+
+    if (track.yearVerified) {
+        setSongYear(track.year, '(Plex, verified)');
         return;
     }
 
     setSongYear('…', '(looking up)');
     lookupReleaseYear(track, () => songId === currentSongId).then(year => {
+        if (manuallySetYears.has(track.ratingKey)) return;
+        if (year) {
+            saveYearToPlex(track.ratingKey, track.librarySectionID, year);
+        }
         if (songId !== currentSongId) return;
         if (year) {
             setSongYear(year, '(MusicBrainz)');
         } else if (track.year) {
-            setSongYear(track.year, '(Plex, unverified)');
+            // undefined: lookup failed (e.g. rate limited), null: MusicBrainz has no match
+            setSongYear(track.year, year === undefined
+                ? '(Plex, unverified: MusicBrainz unavailable)'
+                : '(Plex, unverified)');
         } else {
             setSongYear('unknown', '');
         }
@@ -867,6 +936,47 @@ function setSongYear(year, note) {
     document.getElementById('song-year-note').textContent = note;
 }
 
+function setEditableYearTrack(track) {
+    editableYearTrack = track;
+    document.getElementById('editYearButton').hidden = !track;
+    document.getElementById('yearEditor').hidden = true;
+}
+
+document.getElementById('editYearButton').addEventListener('click', function() {
+    const input = document.getElementById('yearEditInput');
+    input.value = parseInt(document.getElementById('song-year').textContent, 10) || '';
+    this.hidden = true;
+    document.getElementById('yearEditor').hidden = false;
+    input.focus();
+});
+
+document.getElementById('cancelYearButton').addEventListener('click', function() {
+    setEditableYearTrack(editableYearTrack);
+});
+
+document.getElementById('saveYearButton').addEventListener('click', saveEditedYear);
+document.getElementById('yearEditInput').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') saveEditedYear();
+    if (event.key === 'Escape') setEditableYearTrack(editableYearTrack);
+});
+
+// Manually corrected year: always written to Plex (explicit user action),
+// regardless of the automatic save setting
+async function saveEditedYear() {
+    const track = editableYearTrack;
+    const year = parseInt(document.getElementById('yearEditInput').value, 10);
+    if (!track || !(year >= 1000 && year <= 2100)) return;
+
+    manuallySetYears.add(track.ratingKey);
+    setEditableYearTrack(track);
+    setSongYear(year, '(saving…)');
+    const saved = await writePlexYear(track.ratingKey, track.librarySectionID, year);
+    if (editableYearTrack !== track) return; // Another song started meanwhile
+    track.year = year;
+    track.yearVerified = saved;
+    setSongYear(year, saved ? '(edited, saved to Plex)' : '(edited, not saved: Plex error)');
+}
+
 function createSourceBadge(type) {
     const badge = document.createElement('span');
     badge.className = `source-badge source-badge-${type}`;
@@ -876,6 +986,7 @@ function createSourceBadge(type) {
 
 function showSongError(message) {
     currentSongId++;
+    setEditableYearTrack(null);
     document.getElementById('song-ratingkey').textContent = '';
     document.getElementById('song-artist').textContent = '';
     document.getElementById('song-title').textContent = message;
@@ -1016,6 +1127,11 @@ document.getElementById('autoplay').addEventListener('click', function() {
 
 document.getElementById('autoShowSonginfo').addEventListener('click', function() {
     document.cookie = "autoShowSonginfoChecked=" + this.checked + ";max-age=2592000"; //30 Tage
+    listCookies();
+});
+
+document.getElementById('saveYearsToPlex').addEventListener('click', function() {
+    document.cookie = "saveYearsToPlexChecked=" + this.checked + ";max-age=2592000"; //30 Tage
     listCookies();
 });
 
@@ -1225,6 +1341,10 @@ function getCookies() {
     if (getCookieValue("showProgressBarChecked") !== undefined) {
         isTrueSet = (getCookieValue("showProgressBarChecked") === 'true');
         document.getElementById('showProgressBar').checked = isTrueSet;
+    }
+    if (getCookieValue("saveYearsToPlexChecked") !== undefined) {
+        isTrueSet = (getCookieValue("saveYearsToPlexChecked") === 'true');
+        document.getElementById('saveYearsToPlex').checked = isTrueSet;
     }
     listCookies();
 }

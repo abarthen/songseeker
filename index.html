@@ -6,7 +6,7 @@
     <script type="module">
       import QrScanner from "https://unpkg.com/qr-scanner/qr-scanner.min.js";
     </script>
-    <link rel="stylesheet" href="style.css?version=20261017c">
+    <link rel="stylesheet" href="style.css?version=20261017e">
     <meta name=viewport content="width=device-width, initial-scale=1">
 
     <!-- Allow web app to be run in full-screen mode -->
@@ -53,7 +53,15 @@
     <div id="ratingkeyrow">Rating Key: <span id="song-ratingkey"></span></div>
     <div id="artistrow">Artist: <span id="song-artist"></span></div>
     <div id="titlerow">Title: <span id="song-title"></span></div>
-    <div id="yearrow">Year: <span id="song-year"></span> <span id="song-year-note" class="song-note"></span></div>
+    <div id="yearrow">Year: <span id="song-year"></span> <span id="song-year-note" class="song-note"></span>
+      <button id="editYearButton" class="year-edit-button" hidden>Edit</button>
+      <span id="yearEditor" hidden>
+        <input type="number" id="yearEditInput" min="1000" max="2100" inputmode="numeric" aria-label="Year"
+          autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+        <button id="saveYearButton" class="year-edit-button">Save</button>
+        <button id="cancelYearButton" class="year-edit-button">Cancel</button>
+      </span>
+    </div>
     <div id="sourcerow">Source: <span id="song-source"></span>
       <div id="song-warning" class="song-warning"></div>
     </div>
@@ -118,6 +126,9 @@
         <div>
           <span id="plexMappingStatus"></span>
           <br />
+          <input type="checkbox" id="saveYearsToPlex" name="saveYearsToPlex" checked />
+          <label for="saveYearsToPlex">Save verified years to Plex</label>
+          <br />
           <button id="testPlexConnection" class="button">Test Connection</button>
           <span id="plexConnectionStatus"></span>
         </div>
@@ -136,7 +147,7 @@
     </div>
 
 
-    <script type="module" src="app.js?version=20261017c"></script>
+    <script type="module" src="app.js?version=20261017e"></script>
 
   </body>
 

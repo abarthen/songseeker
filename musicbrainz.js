@@ -15,28 +15,16 @@ const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2/recording';
 const REQUEST_SPACING_MS = 1100; // MusicBrainz allows about 1 request per second
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000; // Doubled per retry when rate limited
-const CACHE_KEY = 'musicbrainzYearCache';
 
 let lastRequestTime = 0;
 let requestQueue = Promise.resolve();
 
-// ratingKey -> year (null when MusicBrainz has no match)
-const yearCache = loadCache();
-
-function loadCache() {
-    try {
-        return JSON.parse(localStorage.getItem(CACHE_KEY)) || {};
-    } catch (e) {
-        return {};
-    }
-}
-
-function saveCache() {
-    try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(yearCache));
-    } catch (e) {
-        // Storage unavailable or full; lookups still work, just uncached
-    }
+// Earlier versions cached years in the browser; verified years now live in
+// Plex instead, so drop the old cache rather than leave stale data around
+try {
+    localStorage.removeItem('musicbrainzYearCache');
+} catch (e) {
+    // Storage unavailable; nothing to clean up
 }
 
 /**
@@ -167,16 +155,12 @@ async function searchEarliestYear(artist, title, filter, isCurrent) {
 
 /**
  * Look up the original release year of a Plex track.
- * @param {object} track - { ratingKey, artist, title, mbid } (mbid is the MusicBrainz track ID)
+ * @param {object} track - { artist, title, mbid } (mbid is the MusicBrainz track ID)
  * @param {function} isCurrent - Returns false once the song was skipped, to cancel pending requests
  * @returns {number|null|undefined} Year, null if MusicBrainz has no match,
  *          undefined if the lookup was cancelled or failed
  */
 export async function lookupReleaseYear(track, isCurrent = () => true) {
-    if (track.ratingKey in yearCache) {
-        return yearCache[track.ratingKey];
-    }
-
     const years = [];
     try {
         if (track.mbid) {
@@ -218,7 +202,5 @@ export async function lookupReleaseYear(track, isCurrent = () => true) {
 
     const year = years.length > 0 ? Math.min(...years) : null;
     console.log(`MusicBrainz year for ${track.artist} - ${track.title}: ${year ?? 'not found'}`);
-    yearCache[track.ratingKey] = year;
-    saveCache();
     return year;
 }

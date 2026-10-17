@@ -89,7 +89,9 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 **Song info sources:**
 - Edition mappings are the source of truth: any song (scanned, from a playlist or the library) is looked up by ratingKey in all loaded mappings first, even unselected ones. If mappings disagree, the first in manifest order wins and a warning is shown
-- Otherwise artist/title come from Plex and the year from MusicBrainz (`musicbrainz.js`): the earlier of (a) the recording behind the Plex track's MusicBrainz track ID and (b) an artist + title search taking the earliest non-live match. Falls back to the Plex year, marked unverified. Results are cached per device in localStorage
+- Otherwise artist/title come from Plex. Year priority: edition JSON > locked Plex track year > MusicBrainz (`musicbrainz.js`: the earlier of the recording behind the Plex track's MusicBrainz track ID and an artist + title search taking the earliest non-live match) > unlocked Plex year (usually the album year, shown as unverified). There is deliberately no browser cache; Plex is the only store of verified years
+- Verified years (from JSON or MusicBrainz) are written back to the Plex *track* (not the album) and locked (`PUT /library/sections/{id}/all?type=10&id={ratingKey}&year.value=...&year.locked=1`). A locked track year is what marks a Plex year as trustworthy. Plex list endpoints don't return field locks, so random picks load the track via `/library/metadata/{ratingKey}`. Controlled by the "Save verified years to Plex" setting; writes stop for the session after a failure
+- Non-edition years have an Edit button in the song info to correct disputed years; the edited year is always written to Plex and locked. Edition years can't be edited, since the JSON files are replaced on the next release
 - The Song Info area shows the source (Edition/Plex badge) and where the year came from
 
 **Plex Integration:**
