@@ -1,5 +1,6 @@
 import QrScanner from "https://unpkg.com/qr-scanner/qr-scanner.min.js";
 import { playerManager } from "./player-manager.js";
+import { lookupReleaseYear } from "./musicbrainz.js";
 
 let playbackTimer; // hold the timer reference
 let playbackDuration = 30; // Default playback duration
@@ -9,6 +10,7 @@ let currentStartTime = 0;
 let autoShowSonginfoTimer = null; // Timer for auto-showing song info
 let progressBarInterval = null; // Timer for updating progress bar
 const selectedGames = new Set(); // Game editions selected for random playback
+const selectedPlaylists = new Set(); // Plex playlist rating keys selected for random playback
 let gameMode = 'hitster'; // 'hitster' (scan cards) or 'plex' (random songs from Plex)
 
 // Button state management
@@ -69,6 +71,9 @@ let plexGames = {}; // Game names from manifest (mapping -> name)
 let plexMatchRates = {}; // Match rates from manifest (mapping -> rate)
 let plexDateRanges = {}; // Date ranges from manifest (mapping -> {min, max})
 let plexSongCounts = {}; // Song counts from manifest (mapping -> count)
+let plexTrackIndex = new Map(); // ratingKey -> [{ track, game, scannedKey? }] across all mappings
+let plexPlaylists = []; // [{ ratingKey, title, leafCount, smart }] audio playlists on the server
+const plexPlaylistSizes = {}; // playlist ratingKey -> number of playable items
 
 // Function to detect iOS devices
 function isIOS() {
@@ -142,6 +147,7 @@ async function loadPlexMappings() {
             console.error(`Failed to load mapping for ${lang}:`, e);
         }
     }
+    buildPlexTrackIndex();
     pruneSelectedGames();
     updateStartButtonMode();
     if (document.getElementById('gameEditions_div')?.style.display !== 'none') {
@@ -170,31 +176,46 @@ function lookupPlexTrack(cardId, lang) {
     return mapping[normalizedId] || null;
 }
 
-function lookupPlexTrackByRatingKey(ratingKey) {
-    // Search all loaded mappings for a track with this ratingKey
-    for (const lang of Object.keys(plexMappingCache)) {
-        const mapping = plexMappingCache[lang];
-        // Check if ratingKey exists as a key in the mapping (custom games use ratingKey as key)
-        if (mapping[ratingKey] && mapping[ratingKey].ratingKey === ratingKey) {
-            return { track: mapping[ratingKey], game: lang };
-        }
-        // Also check all tracks for matching ratingKey (standard Hitster mappings)
-        for (const key of Object.keys(mapping)) {
-            if (mapping[key] && mapping[key].ratingKey === ratingKey) {
-                return { track: mapping[key], game: lang };
-            }
-        }
-        // Check alternativeKeys for tracks that were replaced in Plex
-        // (old ratingKey on printed card, new ratingKey in mapping)
-        for (const key of Object.keys(mapping)) {
-            const track = mapping[key];
-            if (track && track.alternativeKeys && track.alternativeKeys.includes(ratingKey)) {
-                console.log(`Found via alternativeKeys: ${ratingKey} -> ${track.ratingKey}`);
-                return { track: track, game: lang, scannedKey: ratingKey };
+// Index every mapped track by ratingKey, in manifest order, so a lookup
+// finds all editions containing a song.
+function buildPlexTrackIndex() {
+    plexTrackIndex = new Map();
+    const add = (key, entry) => {
+        if (!plexTrackIndex.has(key)) plexTrackIndex.set(key, []);
+        plexTrackIndex.get(key).push(entry);
+    };
+    for (const game of Object.keys(plexMappingCache)) {
+        for (const track of Object.values(plexMappingCache[game])) {
+            if (!track || !track.ratingKey) continue;
+            add(track.ratingKey, { track, game });
+            // Old ratingKey on printed card, new ratingKey in mapping (track replaced in Plex)
+            for (const altKey of track.alternativeKeys || []) {
+                add(altKey, { track, game, scannedKey: altKey });
             }
         }
     }
-    return null;
+}
+
+function isSameSongInfo(a, b) {
+    return a.artist === b.artist && a.title === b.title && a.year === b.year;
+}
+
+// Look up a song in all edition mappings. Editions are the source of truth;
+// if they disagree, the first one wins and the others are reported as conflicts.
+function lookupPlexTrackByRatingKey(ratingKey) {
+    const entries = plexTrackIndex.get(ratingKey);
+    if (!entries) return null;
+    const direct = entries.filter(e => !e.scannedKey);
+    const candidates = direct.length > 0 ? direct : entries;
+    const first = candidates[0];
+    const conflicts = candidates.filter(e => !isSameSongInfo(e.track, first.track));
+    if (first.scannedKey) {
+        console.log(`Found via alternativeKeys: ${ratingKey} -> ${first.track.ratingKey}`);
+    }
+    if (conflicts.length > 0) {
+        console.warn(`Conflicting song info for ratingKey ${ratingKey}:`, candidates);
+    }
+    return { ...first, conflicts };
 }
 
 function isPlexConfigured() {
@@ -257,21 +278,79 @@ async function fetchRandomLibraryTrack() {
     });
 
     const data = await fetchPlexJson(
-        `/library/sections/${section.key}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1`);
+        `/library/sections/${section.key}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1&includeGuids=1`);
     const item = data.MediaContainer.Metadata?.[0];
     if (!item) {
         // Library shrank since it was counted; recount on the next request
         plexMusicSections = null;
         return null;
     }
+    return plexItemToTrack(item);
+}
+
+// Convert Plex track metadata (fetched with includeGuids=1) to mapping-style track info
+function plexItemToTrack(item) {
+    const mbidGuid = (item.Guid || []).find(g => g.id.startsWith('mbid://'));
     return {
         ratingKey: String(item.ratingKey),
         title: item.title,
         artist: item.originalTitle || item.grandparentTitle,
         album: item.parentTitle,
-        // Tracks rarely carry their own year; fall back to the album year
-        year: item.year || item.parentYear
+        // Tracks rarely carry their own year; fall back to the album year.
+        // Unreliable either way, so it is only used if MusicBrainz has nothing.
+        year: item.year || item.parentYear,
+        mbid: mbidGuid ? mbidGuid.id.slice('mbid://'.length) : undefined
     };
+}
+
+async function fetchPlexTrack(ratingKey) {
+    const data = await fetchPlexJson(`/library/metadata/${encodeURIComponent(ratingKey)}?includeGuids=1`);
+    const item = data.MediaContainer.Metadata?.[0];
+    return item && item.type === 'track' ? plexItemToTrack(item) : null;
+}
+
+async function loadPlexPlaylists() {
+    if (!isPlexConfigured()) return;
+    try {
+        const data = await fetchPlexJson('/playlists?playlistType=audio');
+        plexPlaylists = (data.MediaContainer.Metadata || []).map(p => ({
+            ratingKey: String(p.ratingKey),
+            title: p.title,
+            leafCount: p.leafCount || 0,
+            smart: !!p.smart
+        }));
+        console.log('Loaded Plex playlists:', plexPlaylists.length);
+    } catch (e) {
+        console.error('Failed to load Plex playlists:', e);
+        return;
+    }
+    pruneSelectedPlaylists();
+    if (document.getElementById('gameEditions_div')?.style.display !== 'none') {
+        updatePlexPlaylistsList();
+    }
+}
+
+// leafCount can include items that are no longer playable, so count the
+// items the playlist actually returns.
+async function fetchPlaylistSize(playlistKey) {
+    if (!(playlistKey in plexPlaylistSizes)) {
+        const data = await fetchPlexJson(
+            `/playlists/${playlistKey}/items?X-Plex-Container-Start=0&X-Plex-Container-Size=0`);
+        plexPlaylistSizes[playlistKey] = data.MediaContainer.totalSize || 0;
+    }
+    return plexPlaylistSizes[playlistKey];
+}
+
+async function fetchPlaylistTrack(playlistKey, offset) {
+    const data = await fetchPlexJson(
+        `/playlists/${playlistKey}/items?X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1&includeGuids=1`);
+    const item = data.MediaContainer.Metadata?.[0];
+    if (!item) {
+        // Playlist changed since it was counted; recount on the next request
+        delete plexPlaylistSizes[playlistKey];
+        return null;
+    }
+    return plexItemToTrack(item);
 }
 
 async function testPlexConnection() {
@@ -332,10 +411,9 @@ async function handleScannedLink(decodedText) {
     playerManager.stop();
     setButtonState('loading');
 
-    let plexTrackInfo = null;
+    let songInfo = null;  // See displayTrack
     let plexDebugInfo = "";
     let hitsterData = null;
-    let scannedKey = null;  // Set when card was matched via alternativeKey
     let customGameKey = null;  // Set when a plex:XXXXX card was scanned
 
     if (isPlexRatingKey(decodedText)) {
@@ -349,16 +427,27 @@ async function handleScannedLink(decodedText) {
         } else if (!plexConfig.token) {
             plexDebugInfo = "No token in config";
         } else {
-            // Look up track info from loaded mappings (includes partKey)
+            // Look up track info from loaded mappings first, then fall back to Plex itself
             const result = lookupPlexTrackByRatingKey(ratingKey);
             if (result) {
-                plexTrackInfo = result.track;
-                scannedKey = result.scannedKey || null;
-                plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
-                console.log(`Found in mapping (${result.game}):`, plexTrackInfo.artist, "-", plexTrackInfo.title);
+                songInfo = { track: result.track, edition: result.game, conflicts: result.conflicts, scannedKey: result.scannedKey };
+                plexDebugInfo = `Found: ${result.track.artist} - ${result.track.title}`;
+                console.log(`Found in mapping (${result.game}):`, result.track.artist, "-", result.track.title);
             } else {
-                plexDebugInfo = `Rating key ${ratingKey} not found in any loaded mapping`;
-                console.log('Rating key not found in any mapping. Is the custom game mapping loaded?');
+                let plexTrack = null;
+                try {
+                    plexTrack = await fetchPlexTrack(ratingKey);
+                } catch (e) {
+                    console.error('Failed to fetch track from Plex:', e);
+                }
+                if (plexTrack) {
+                    songInfo = { track: plexTrack, edition: null };
+                    plexDebugInfo = `Found in Plex: ${plexTrack.artist} - ${plexTrack.title}`;
+                    console.log('Rating key not in any mapping, using Plex:', plexTrack.artist, "-", plexTrack.title);
+                } else {
+                    plexDebugInfo = `Rating key ${ratingKey} not found in mappings or Plex`;
+                    console.log('Rating key not found in any mapping or in Plex');
+                }
             }
         }
     } else if (isHitsterLink(decodedText)) {
@@ -380,8 +469,9 @@ async function handleScannedLink(decodedText) {
                 plexDebugInfo = `No mapping for lang=${hitsterData.lang}`;
             } else {
                 const normalizedCardId = String(parseInt(hitsterData.id, 10));
-                plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
+                const plexTrackInfo = lookupPlexTrack(hitsterData.id, hitsterData.lang);
                 if (plexTrackInfo) {
+                    songInfo = { track: plexTrackInfo, edition: hitsterData.lang };
                     console.log(`Found in Plex: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`);
                     plexDebugInfo = `Found: ${plexTrackInfo.artist} - ${plexTrackInfo.title}`;
                 } else {
@@ -404,48 +494,22 @@ async function handleScannedLink(decodedText) {
     lastDecodedText = "";
 
     // Handle Plex playback
-    if (plexTrackInfo) {
+    if (songInfo) {
         const plexSettings = getPlexSettings();
         playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
-
-        // Show scanned key if it differs from the track's ratingKey (matched via alternativeKey)
-        if (scannedKey && scannedKey !== plexTrackInfo.ratingKey) {
-            document.getElementById('song-ratingkey').textContent = `${plexTrackInfo.ratingKey} (card: ${scannedKey})`;
-        } else {
-            document.getElementById('song-ratingkey').textContent = plexTrackInfo.ratingKey;
-        }
-        document.getElementById('song-artist').textContent = plexTrackInfo.artist;
-        document.getElementById('song-title').textContent = plexTrackInfo.title;
-        document.getElementById('song-title').style.color = '';
-        document.getElementById('song-year').textContent = plexTrackInfo.year || '';
+        displayTrack(songInfo);
 
         currentStartTime = 0;
-        await playerManager.cue({ trackInfo: plexTrackInfo });
+        await playerManager.cue({ trackInfo: songInfo.track });
     } else if (hitsterData) {
         // Card was recognized but not matched in Plex
         const normalizedCardId = String(parseInt(hitsterData.id, 10));
-        document.getElementById('song-ratingkey').textContent = '';
-        document.getElementById('song-artist').textContent = '';
-        document.getElementById('song-title').textContent = `Card #${normalizedCardId} not available`;
-        document.getElementById('song-title').style.color = '#cc0000';
-        document.getElementById('song-year').textContent = '';
-        setButtonState('disabled');
+        showSongError(`Card #${normalizedCardId} not available`);
     } else if (customGameKey) {
-        // Custom game card was scanned but not found in any mapping
-        document.getElementById('song-ratingkey').textContent = '';
-        document.getElementById('song-artist').textContent = '';
-        document.getElementById('song-title').textContent = `Card ${customGameKey} not available`;
-        document.getElementById('song-title').style.color = '#cc0000';
-        document.getElementById('song-year').textContent = '';
-        setButtonState('disabled');
+        // Custom game card was scanned but not found in any mapping or in Plex
+        showSongError(`Card ${customGameKey} not available`);
     } else {
-        // Unknown link format
-        document.getElementById('song-ratingkey').textContent = '';
-        document.getElementById('song-artist').textContent = '';
-        document.getElementById('song-title').textContent = 'Unknown QR code format';
-        document.getElementById('song-title').style.color = '#cc0000';
-        document.getElementById('song-year').textContent = '';
-        setButtonState('disabled');
+        showSongError('Unknown QR code format');
     }
 }
 
@@ -684,59 +748,141 @@ async function playRandomSong() {
     playerManager.stop();
 
     if (!isPlexConfigured()) {
-        showRandomSongError('Plex not configured');
+        showSongError('Plex not configured');
         return;
     }
 
-    let track;
-    if (selectedGames.size > 0) {
-        const pool = getSelectedTrackPool();
-        if (pool.length === 0) {
-            showRandomSongError('No songs in selected editions');
-            return;
-        }
-        setButtonState('loading');
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        track = pick.track;
-        console.log(`Random song from ${pick.lang}: ${track.artist} - ${track.title}`);
-    } else {
-        setButtonState('loading');
-        try {
-            track = await fetchRandomLibraryTrack();
-        } catch (e) {
-            console.error('Failed to fetch random track from Plex library:', e);
-        }
-        if (!track) {
-            showRandomSongError('Could not get a song from Plex');
-            return;
-        }
-        // Prefer mapping data when the track is part of an edition (validated year)
-        const mapped = lookupPlexTrackByRatingKey(track.ratingKey);
-        if (mapped) {
-            track = mapped.track;
-        }
-        console.log(`Random song from Plex library: ${track.artist} - ${track.title}`);
+    setButtonState('loading');
+    let songInfo = null;
+    try {
+        songInfo = await pickRandomSong();
+    } catch (e) {
+        console.error('Failed to pick a random song:', e);
     }
+    if (!songInfo) {
+        showSongError(selectedGames.size > 0 || selectedPlaylists.size > 0
+            ? 'No songs in selected editions or playlists'
+            : 'Could not get a song from Plex');
+        return;
+    }
+    const track = songInfo.track;
+    console.log(`Random song from ${songInfo.edition || 'Plex'}: ${track.artist} - ${track.title}`);
 
     const plexSettings = getPlexSettings();
     playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
-
-    document.getElementById('song-ratingkey').textContent = track.ratingKey;
-    document.getElementById('song-artist').textContent = track.artist;
-    document.getElementById('song-title').textContent = track.title;
-    document.getElementById('song-title').style.color = '';
-    document.getElementById('song-year').textContent = track.year || '';
+    displayTrack(songInfo);
 
     currentStartTime = 0;
     await playerManager.cue({ trackInfo: track });
 }
 
-function showRandomSongError(message) {
+// Pick a random song from the selected editions and playlists, weighted by
+// their size, or from the whole library when nothing is selected.
+// Returns { track, edition, conflicts } (see displayTrack) or null.
+async function pickRandomSong() {
+    if (selectedGames.size === 0 && selectedPlaylists.size === 0) {
+        return songInfoForPlexTrack(await fetchRandomLibraryTrack());
+    }
+
+    const editionPool = getSelectedTrackPool();
+    const playlists = await Promise.all(Array.from(selectedPlaylists, async key => ({
+        key,
+        size: await fetchPlaylistSize(key)
+    })));
+    const total = playlists.reduce((sum, p) => sum + p.size, editionPool.length);
+    if (total === 0) return null;
+
+    let index = Math.floor(Math.random() * total);
+    if (index < editionPool.length) {
+        const pick = editionPool[index];
+        return { track: pick.track, edition: pick.lang, conflicts: [] };
+    }
+    index -= editionPool.length;
+    const playlist = playlists.find(p => {
+        if (index < p.size) return true;
+        index -= p.size;
+        return false;
+    });
+    return songInfoForPlexTrack(await fetchPlaylistTrack(playlist.key, index));
+}
+
+// Song info for a track fetched from Plex: edition data wins if the song is in any edition
+function songInfoForPlexTrack(plexTrack) {
+    if (!plexTrack) return null;
+    const mapped = lookupPlexTrackByRatingKey(plexTrack.ratingKey);
+    if (mapped) {
+        return { track: mapped.track, edition: mapped.game, conflicts: mapped.conflicts };
+    }
+    return { track: plexTrack, edition: null, conflicts: [] };
+}
+
+let currentSongId = 0; // Incremented per song so late year lookups don't overwrite a newer song
+
+/**
+ * Show song info for a new song.
+ * @param {object} songInfo
+ *   track      - Track info (ratingKey, artist, title, year, mbid)
+ *   edition    - Mapping ID the info comes from, or null when it comes from Plex
+ *   conflicts  - Other editions with different info for the same song
+ *   scannedKey - Rating key on the scanned card, if it differs from the track's
+ */
+function displayTrack({ track, edition = null, conflicts = [], scannedKey = null }) {
+    const songId = ++currentSongId;
+
+    document.getElementById('song-ratingkey').textContent = scannedKey && scannedKey !== track.ratingKey
+        ? `${track.ratingKey} (card: ${scannedKey})`
+        : track.ratingKey;
+    document.getElementById('song-artist').textContent = track.artist;
+    document.getElementById('song-title').textContent = track.title;
+    document.getElementById('song-title').style.color = '';
+
+    const sourceEl = document.getElementById('song-source');
+    sourceEl.replaceChildren(createSourceBadge(edition ? 'edition' : 'plex'),
+        ' ' + (edition ? (plexGames[edition] || edition) : 'Music library'));
+
+    document.getElementById('song-warning').textContent = conflicts.map(c =>
+        `Differs in ${plexGames[c.game] || c.game}: ${c.track.artist} - ${c.track.title} (${c.track.year})`
+    ).join('\n');
+
+    if (edition) {
+        setSongYear(track.year || '', '');
+        return;
+    }
+
+    setSongYear('…', '(looking up)');
+    lookupReleaseYear(track, () => songId === currentSongId).then(year => {
+        if (songId !== currentSongId) return;
+        if (year) {
+            setSongYear(year, '(MusicBrainz)');
+        } else if (track.year) {
+            setSongYear(track.year, '(Plex, unverified)');
+        } else {
+            setSongYear('unknown', '');
+        }
+    });
+}
+
+function setSongYear(year, note) {
+    document.getElementById('song-year').textContent = year;
+    document.getElementById('song-year-note').textContent = note;
+}
+
+function createSourceBadge(type) {
+    const badge = document.createElement('span');
+    badge.className = `source-badge source-badge-${type}`;
+    badge.textContent = type === 'edition' ? 'Edition' : 'Plex';
+    return badge;
+}
+
+function showSongError(message) {
+    currentSongId++;
     document.getElementById('song-ratingkey').textContent = '';
     document.getElementById('song-artist').textContent = '';
     document.getElementById('song-title').textContent = message;
     document.getElementById('song-title').style.color = '#cc0000';
-    document.getElementById('song-year').textContent = '';
+    setSongYear('', '');
+    document.getElementById('song-source').replaceChildren();
+    document.getElementById('song-warning').textContent = '';
     setButtonState('disabled');
 }
 
@@ -770,19 +916,21 @@ document.getElementById('debugButton').addEventListener('click', function() {
 // Track whether song info should always be shown
 let songinfoAlwaysVisible = false;
 
+const SONG_INFO_ROWS = ['ratingkeyrow', 'artistrow', 'titlerow', 'yearrow', 'sourcerow'];
+
+function setSongInfoRowsDisplay(display) {
+    SONG_INFO_ROWS.forEach(id => {
+        document.getElementById(id).style.display = display;
+    });
+}
+
 function showSongInfo() {
-    document.getElementById('ratingkeyrow').style.display = 'block';
-    document.getElementById('artistrow').style.display = 'block';
-    document.getElementById('titlerow').style.display = 'block';
-    document.getElementById('yearrow').style.display = 'block';
+    setSongInfoRowsDisplay('block');
 }
 
 function hideSongInfo() {
     if (!songinfoAlwaysVisible) {
-        document.getElementById('ratingkeyrow').style.display = 'none';
-        document.getElementById('artistrow').style.display = 'none';
-        document.getElementById('titlerow').style.display = 'none';
-        document.getElementById('yearrow').style.display = 'none';
+        setSongInfoRowsDisplay('none');
     }
 }
 
@@ -790,10 +938,7 @@ function hideSongInfo() {
 // regardless of whether it was revealed for the previous song.
 function resetSongInfoForNewSong() {
     songinfoAlwaysVisible = false;
-    document.getElementById('ratingkeyrow').style.display = 'none';
-    document.getElementById('artistrow').style.display = 'none';
-    document.getElementById('titlerow').style.display = 'none';
-    document.getElementById('yearrow').style.display = 'none';
+    setSongInfoRowsDisplay('none');
     document.getElementById('toggleSonginfoButton').textContent = 'Reveal Song Info';
     updateAutoShowCheckboxState();
 }
@@ -892,11 +1037,12 @@ document.getElementById('toggleGameEditionsButton').addEventListener('click', fu
     const visible = panel.style.display && panel.style.display !== 'none';
     if (visible) {
         panel.style.display = 'none';
-        this.textContent = 'Show Game Editions';
+        this.textContent = 'Show Editions & Playlists';
     } else {
         updateGameEditionsList();
+        updatePlexPlaylistsList();
         panel.style.display = 'block';
-        this.textContent = 'Hide Game Editions';
+        this.textContent = 'Hide Editions & Playlists';
     }
 });
 
@@ -937,22 +1083,68 @@ function handleGameEditionToggle(event) {
     } else {
         selectedGames.delete(lang);
     }
-    saveSelectedGames();
-    updateStartButtonMode();
+    saveSelection('selectedGames', selectedGames);
 }
 
-function saveSelectedGames() {
-    const value = Array.from(selectedGames).join(',');
-    document.cookie = `selectedGames=${encodeURIComponent(value)};max-age=2592000`;
+function updatePlexPlaylistsList() {
+    const listEl = document.getElementById('plexPlaylistsList');
+
+    if (plexPlaylists.length === 0) {
+        listEl.innerHTML = '<em>No playlists loaded</em>';
+        return;
+    }
+
+    listEl.replaceChildren();
+    const list = document.createElement('ul');
+    list.className = 'game-editions-list';
+    for (const playlist of plexPlaylists) {
+        const checkboxId = `plexPlaylist-${playlist.ratingKey}`;
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = checkboxId;
+        checkbox.dataset.key = playlist.ratingKey;
+        checkbox.checked = selectedPlaylists.has(playlist.ratingKey);
+        checkbox.addEventListener('change', handlePlaylistToggle);
+
+        const label = document.createElement('label');
+        label.htmlFor = checkboxId;
+        label.textContent = `${playlist.title} ${playlist.leafCount} songs`;
+        if (playlist.smart) {
+            const smart = document.createElement('span');
+            smart.className = 'playlist-smart';
+            smart.textContent = ' smart';
+            label.append(smart);
+        }
+
+        const item = document.createElement('li');
+        item.append(checkbox, label);
+        list.append(item);
+    }
+    listEl.append(list);
+}
+
+function handlePlaylistToggle(event) {
+    const key = event.target.dataset.key;
+    if (event.target.checked) {
+        selectedPlaylists.add(key);
+    } else {
+        selectedPlaylists.delete(key);
+    }
+    saveSelection('selectedPlaylists', selectedPlaylists);
+}
+
+function saveSelection(cookieName, selection) {
+    const value = Array.from(selection).join(',');
+    document.cookie = `${cookieName}=${encodeURIComponent(value)};max-age=2592000`;
     listCookies();
 }
 
-function loadSelectedGames() {
-    const raw = getCookieValue('selectedGames');
+function loadSelection(cookieName, selection) {
+    const raw = getCookieValue(cookieName);
     if (!raw) return;
     const decoded = decodeURIComponent(raw);
     if (!decoded) return;
-    decoded.split(',').filter(Boolean).forEach(lang => selectedGames.add(lang));
+    decoded.split(',').filter(Boolean).forEach(value => selection.add(value));
 }
 
 // Drop any selected games that no longer exist in the loaded manifest.
@@ -960,6 +1152,16 @@ function pruneSelectedGames() {
     for (const lang of Array.from(selectedGames)) {
         if (!plexGames[lang]) {
             selectedGames.delete(lang);
+        }
+    }
+}
+
+// Drop any selected playlists that no longer exist on the server.
+function pruneSelectedPlaylists() {
+    const existing = new Set(plexPlaylists.map(p => p.ratingKey));
+    for (const key of Array.from(selectedPlaylists)) {
+        if (!existing.has(key)) {
+            selectedPlaylists.delete(key);
         }
     }
 }
@@ -1001,7 +1203,7 @@ function getCookies() {
 // Load Plex settings
 async function loadPlexSettings() {
     await loadPlexConfig();
-    await loadPlexMappings();
+    await Promise.all([loadPlexMappings(), loadPlexPlaylists()]);
 }
 
 function updatePlexMappingStatus() {
@@ -1043,7 +1245,8 @@ document.getElementById('testPlexConnection').addEventListener('click', async fu
 
 window.addEventListener("DOMContentLoaded", function() {
     getCookies();
-    loadSelectedGames();
+    loadSelection('selectedGames', selectedGames);
+    loadSelection('selectedPlaylists', selectedPlaylists);
     // Without a saved mode, users who already picked editions keep random playback
     const savedMode = getCookieValue('gameMode');
     setGameMode(savedMode || (selectedGames.size > 0 ? 'plex' : 'hitster'));

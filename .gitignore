@@ -148,3 +148,7 @@ tools/plex-manifest.json
 !/tools/package.json
 
 tools/youtube_music_adder/progress.json
+
+# Local copies of mapping files for testing (deployed from songseeker-plex-lists)
+/plex-manifest.json
+/plex-mapping-*.json

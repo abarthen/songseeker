@@ -276,7 +276,8 @@ hr {
 #ratingkeyrow,
 #artistrow,
 #titlerow,
-#yearrow {
+#yearrow,
+#sourcerow {
   display: none;
   margin: 0.5rem auto;
   font-size: 1.1rem;
@@ -463,6 +464,65 @@ label {
   font-size: 0.95rem;
   opacity: 0.85;
   margin-bottom: 0.6rem;
+  padding: 0 0.8rem;
+}
+
+#gameEditions_div .text-block {
+  margin-top: 2rem;
+}
+
+.playlist-block {
+  border-color: #2ec4b6;
+}
+
+.playlist-block .heading {
+  background: linear-gradient(90deg, #2ec4b6 0%, #1a8fa3 100%);
+}
+
+.source-list-hint {
+  font-size: 0.9rem;
+  opacity: 0.85;
+  margin-bottom: 0.4rem;
+}
+
+.source-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.5rem;
+  vertical-align: middle;
+}
+
+.source-badge-edition {
+  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+}
+
+.source-badge-plex {
+  background: linear-gradient(90deg, #2ec4b6 0%, #1a8fa3 100%);
+}
+
+.playlist-smart {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.song-note {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.song-warning {
+  font-size: 0.85rem;
+  color: #ffcc66;
+  white-space: pre-line;
+}
+
+.song-warning:empty {
+  display: none;
 }
 
 .game-editions-list {

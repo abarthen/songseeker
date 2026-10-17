@@ -69,8 +69,10 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 
 ### Web Application
 
-**Single-page application** with three main files:
+**Single-page application** with these main files:
 - `app.js` - All application logic (QR scanning, Plex playback, link parsing)
+- `musicbrainz.js` - Release year lookup for songs not in any edition mapping
+- `player-manager.js`, `plex-player.js` - Audio playback
 - `index.html` - UI structure
 - `style.css` - Styling
 
@@ -81,13 +83,22 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 - Random playback mode with configurable duration
 - Cookie-based settings persistence
 
+**Game modes** (toggle below the divider, saved in the `gameMode` cookie):
+- **Hitster Mode** - Scan cards
+- **Plex Mode** - "Play Random Song" from the selected editions and Plex playlists (weighted by size), or from the whole Plex music library when nothing is selected. Library and playlist picks fetch a single item at a random offset (`X-Plex-Container-Start`/`Size`), so no track list is downloaded
+
+**Song info sources:**
+- Edition mappings are the source of truth: any song (scanned, from a playlist or the library) is looked up by ratingKey in all loaded mappings first, even unselected ones. If mappings disagree, the first in manifest order wins and a warning is shown
+- Otherwise artist/title come from Plex and the year from MusicBrainz (`musicbrainz.js`): the earlier of (a) the recording behind the Plex track's MusicBrainz track ID and (b) an artist + title search taking the earliest non-live match. Falls back to the Plex year, marked unverified. Results are cached per device in localStorage
+- The Song Info area shows the source (Edition/Plex badge) and where the year came from
+
 **Plex Integration:**
 - `plex-config.json` - Plex server URL and token (gitignored, must be created manually)
 - `plex-manifest.json` - Array of game objects with mapping ID, name, songCount, matchRate, minDate, maxDate
 - `plex-mapping-{lang}.json` - Maps Hitster card IDs to Plex track metadata (one per language/edition)
 - Debug info shows Plex lookup status for each card
 - Unmatched cards show "Card #X not available" feedback to the user
-- Supports direct rating key QR codes (`plex:12345` format) for custom games
+- Supports direct rating key QR codes (`plex:12345` format) for custom games; keys not in any mapping are played straight from Plex
 
 To enable Plex, create `plex-config.json` in the root:
 ```json

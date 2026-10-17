@@ -53,7 +53,10 @@
     <div id="ratingkeyrow">Rating Key: <span id="song-ratingkey"></span></div>
     <div id="artistrow">Artist: <span id="song-artist"></span></div>
     <div id="titlerow">Title: <span id="song-title"></span></div>
-    <div id="yearrow">Year: <span id="song-year"></span></div>
+    <div id="yearrow">Year: <span id="song-year"></span> <span id="song-year-note" class="song-note"></span></div>
+    <div id="sourcerow">Source: <span id="song-source"></span>
+      <div id="song-warning" class="song-warning"></div>
+    </div>
 
     <hr />
     <div class="mode-toggle" role="group" aria-label="Game mode">
@@ -62,12 +65,18 @@
     </div>
 
     <div id="plexModeControls">
-      <button id="toggleGameEditionsButton" class="button">Show Game Editions</button>
+      <button id="toggleGameEditionsButton" class="button">Show Editions &amp; Playlists</button>
       <div class="settings_div" id="gameEditions_div">
+        <div id="gameEditionsHint">Select editions or playlists to limit random songs to them. With none selected, songs are picked from your whole Plex music library.</div>
         <div class="text-block">
           <div class="heading">Game Editions</div>
-          <div id="gameEditionsHint">Select editions to limit random songs to them. With none selected, songs are picked from your whole Plex music library.</div>
+          <div class="source-list-hint"><span class="source-badge source-badge-edition">Edition</span> Verified song info from the edition files</div>
           <div id="gameEditionsList"></div>
+        </div>
+        <div class="text-block playlist-block">
+          <div class="heading">Plex Playlists</div>
+          <div class="source-list-hint">Song info is taken from an edition if the song is in one. Otherwise it comes from Plex, with the year looked up on MusicBrainz.</div>
+          <div id="plexPlaylistsList"></div>
         </div>
       </div>
     </div>
@@ -83,7 +92,7 @@
           <input type="checkbox" id="autoShowSonginfo" name="autoShowSonginfo" />
           <label for="autoShowSonginfo">Show song info after 5 seconds</label>
           <br />
-          <input type="checkbox" id="showProgressBar" name="showProgressBar" />
+          <input type="checkbox" id="showProgressBar" name="showProgressBar" checked />
           <label for="showProgressBar">Show progress bar</label>
         </div>
       </div>
@@ -124,7 +133,7 @@
     </div>
 
 
-    <script type="module" src="app.js?version=20261017"></script>
+    <script type="module" src="app.js?version=20261017b"></script>
 
   </body>
 
