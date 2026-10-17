@@ -6,7 +6,7 @@
     <script type="module">
       import QrScanner from "https://unpkg.com/qr-scanner/qr-scanner.min.js";
     </script>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?version=20261017c">
     <meta name=viewport content="width=device-width, initial-scale=1">
 
     <!-- Allow web app to be run in full-screen mode -->
@@ -64,16 +64,19 @@
       <button id="plexModeButton" class="mode-toggle-option" data-mode="plex" aria-pressed="false">Plex Mode</button>
     </div>
 
-    <div id="plexModeControls">
-      <button id="toggleGameEditionsButton" class="button">Show Editions &amp; Playlists</button>
+    <div id="editionsControls">
+      <button id="toggleGameEditionsButton" class="button">Show Editions</button>
       <div class="settings_div" id="gameEditions_div">
-        <div id="gameEditionsHint">Select editions or playlists to limit random songs to them. With none selected, songs are picked from your whole Plex music library.</div>
-        <div class="text-block">
+        <div id="gameEditionsHint">
+          <span class="hitster-only">Editions available for scanning cards. Editions marked 100% have every card playable.</span>
+          <span class="plex-only">Select editions or playlists to limit random songs to them. With none selected, songs are picked from your whole Plex music library.</span>
+        </div>
+        <div class="text-block edition-block">
           <div class="heading">Game Editions</div>
           <div class="source-list-hint"><span class="source-badge source-badge-edition">Edition</span> Verified song info from the edition files</div>
           <div id="gameEditionsList"></div>
         </div>
-        <div class="text-block playlist-block">
+        <div class="text-block playlist-block plex-only">
           <div class="heading">Plex Playlists</div>
           <div class="source-list-hint">Song info is taken from an edition if the song is in one. Otherwise it comes from Plex, with the year looked up on MusicBrainz.</div>
           <div id="plexPlaylistsList"></div>
@@ -133,7 +136,7 @@
     </div>
 
 
-    <script type="module" src="app.js?version=20261017b"></script>
+    <script type="module" src="app.js?version=20261017c"></script>
 
   </body>
 

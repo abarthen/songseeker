@@ -1,6 +1,43 @@
 /* Modern Music Guessing Game Style */
 
+/* Themes: Hitster (default) and Plex, switched via data-mode on <html> */
+
+:root {
+  /* Source colors stay the same in both themes */
+  --edition-color: #e6007e;
+  --plex-color: #e5a00d;
+
+  /* Hitster: dark slate grey to neon pink */
+  --bg: linear-gradient(160deg, #303441 0%, #242833 45%, #191919 100%);
+  --bg-solid: #191919; /* Behind the gradient, e.g. when overscrolling */
+  --accent: #e6007e;
+  --accent-gradient: linear-gradient(90deg, #e6007e 0%, #ff2fa0 100%);
+  --accent-gradient-hover: linear-gradient(90deg, #ff2fa0 0%, #e6007e 100%);
+  --accent-shadow: rgba(230, 0, 126, 0.35);
+  --on-accent: #fff;
+}
+
+:root[data-mode="plex"] {
+  /* Plex: charcoal grey, white, Plex amber */
+  --bg: linear-gradient(160deg, #2b2f33 0%, #1f2326 45%, #121314 100%);
+  --bg-solid: #121314;
+  --accent: #e5a00d;
+  --accent-gradient: linear-gradient(90deg, #e5a00d 0%, #ebaf00 100%);
+  --accent-gradient-hover: linear-gradient(90deg, #f5bd2e 0%, #e5a00d 100%);
+  --accent-shadow: rgba(229, 160, 13, 0.25);
+  --on-accent: #1f2326;
+}
+
+:root:not([data-mode="plex"]) .plex-only,
+:root[data-mode="plex"] .hitster-only {
+  display: none;
+}
+
 /* Reset & Base */
+
+html {
+  background-color: var(--bg-solid);
+}
 
 * {
   margin: 0;
@@ -10,7 +47,7 @@
 
 body {
   font-family: "Montserrat", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--bg);
   color: #fff;
   min-height: 100vh;
   text-align: center;
@@ -26,13 +63,14 @@ h2 {
   letter-spacing: 2px;
   margin-top: 2.5rem;
   margin-bottom: 1.2rem;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+  background: var(--accent-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 0.6rem var(--accent-shadow));
 }
 
 a {
-  color: #ff512f;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
   transition: color 0.2s;
@@ -40,13 +78,13 @@ a {
 
 a:hover {
   color: #fff;
-  text-shadow: 0 0 0.5rem #ff512f;
+  text-shadow: 0 0 0.5rem var(--accent);
 }
 
 hr {
   border: none;
   height: 0.15rem;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+  background: var(--accent-gradient);
   margin: 1.5rem 0 1rem 0;
   border-radius: 1rem;
   width: 80%;
@@ -56,15 +94,15 @@ hr {
 .button_startscan,
 .button_startstop {
   display: inline-block;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--on-accent);
   font-size: 1.1rem;
   font-weight: 700;
   padding: 0.6rem 1.5rem;
   margin: 0;
   border: none;
   border-radius: 1.5rem;
-  box-shadow: 0 0.25rem 1rem rgba(221, 36, 118, 0.15);
+  box-shadow: 0 0.25rem 1rem var(--accent-shadow);
   cursor: pointer;
   transition: background 0.3s, transform 0.2s;
 }
@@ -72,7 +110,7 @@ hr {
 .button:hover,
 .button_startscan:hover,
 .button_startstop:hover {
-  background: linear-gradient(90deg, #dd2476 0%, #ff512f 100%);
+  background: var(--accent-gradient-hover);
   transform: scale(1.07);
 }
 
@@ -99,21 +137,21 @@ hr {
 
 .button_seek {
   display: inline-block;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--on-accent);
   font-size: 0.9rem;
   font-weight: 700;
   padding: 0.5rem 0.8rem;
   border: none;
   border-radius: 1.2rem;
-  box-shadow: 0 0.15rem 0.5rem rgba(221, 36, 118, 0.15);
+  box-shadow: 0 0.15rem 0.5rem var(--accent-shadow);
   cursor: pointer;
   transition: background 0.3s, transform 0.2s;
   min-width: 3.5rem;
 }
 
 .button_seek:hover:not(:disabled) {
-  background: linear-gradient(90deg, #dd2476 0%, #ff512f 100%);
+  background: var(--accent-gradient-hover);
   transform: scale(1.05);
 }
 
@@ -142,6 +180,7 @@ hr {
 }
 
 .button_startstop {
+  color: #fff;
   width: 6rem;
   height: 2.2rem;
   font-size: 1rem;
@@ -248,14 +287,14 @@ hr {
   margin: 2rem auto 1.2rem auto;
   background: rgba(255, 255, 255, 0.07);
   border-radius: 1.2rem;
-  box-shadow: 0 0.4rem 1.5rem rgba(30, 60, 114, 0.15);
+  box-shadow: 0 0.4rem 1.5rem rgba(0, 0, 0, 0.25);
   padding: 1.2rem 0;
 }
 
 #qr-video {
   width: 90%;
   border-radius: 0.8rem;
-  box-shadow: 0 0.15rem 0.5rem rgba(30, 60, 114, 0.15);
+  box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.25);
 }
 
 #cancelScanButton {
@@ -263,7 +302,7 @@ hr {
   top: 0.6rem;
   right: 0.6rem;
   display: none;
-  background: linear-gradient(90deg, #e95d5d 0%, #ff512f 100%);
+  background: linear-gradient(90deg, #e95d5d 0%, #c93636 100%);
   color: #fff;
   font-weight: 700;
   border-radius: 1.2rem;
@@ -314,7 +353,7 @@ hr {
   appearance: none;
   width: 1rem;
   height: 1rem;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+  background: var(--accent-gradient);
   border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 0.1rem 0.3rem rgba(0, 0, 0, 0.3);
@@ -323,7 +362,7 @@ hr {
 #progress-bar::-moz-range-thumb {
   width: 1rem;
   height: 1rem;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+  background: var(--accent-gradient);
   border-radius: 50%;
   cursor: pointer;
   border: none;
@@ -332,7 +371,7 @@ hr {
 
 #progress-bar::-webkit-slider-runnable-track {
   height: 0.5rem;
-  background: linear-gradient(to right, #ff512f 0%, rgba(255, 255, 255, 0.2) 0%);
+  background: linear-gradient(to right, var(--accent) 0%, rgba(255, 255, 255, 0.2) 0%);
   border-radius: 0.25rem;
 }
 
@@ -354,7 +393,7 @@ hr {
   margin: 0 auto;
   background: rgba(255, 255, 255, 0.09);
   border-radius: 1.1rem;
-  box-shadow: 0 0.15rem 0.8rem rgba(30, 60, 114, 0.12);
+  box-shadow: 0 0.15rem 0.8rem rgba(0, 0, 0, 0.2);
   padding: 1.5rem 0 1rem 0;
   position: static;
   display: none;
@@ -367,10 +406,10 @@ hr {
   margin-bottom: 1.1rem;
   padding: 1rem 0.8rem 0.8rem 0.8rem;
   text-align: center;
-  border: 1px solid #ff512f;
+  border: 1px solid var(--accent);
   border-radius: 0.8rem;
   background: rgba(255, 255, 255, 0.07);
-  box-shadow: 0 0.15rem 0.5rem rgba(221, 36, 118, 0.07);
+  box-shadow: 0 0.15rem 0.5rem var(--accent-shadow);
 }
 
 .text-block .heading {
@@ -381,15 +420,15 @@ hr {
   padding: 0 0.7rem;
   font-size: 1.1rem;
   font-weight: 700;
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--on-accent);
   border-radius: 0.6rem;
-  box-shadow: 0 0.15rem 0.5rem rgba(221, 36, 118, 0.07);
+  box-shadow: 0 0.15rem 0.5rem var(--accent-shadow);
 }
 
 input[type="checkbox"],
 input[type="number"] {
-  accent-color: #ff512f;
+  accent-color: var(--accent);
   margin: 0 0.5rem;
   font-size: 1.1rem;
   border-radius: 0.4rem;
@@ -421,7 +460,7 @@ label {
   display: inline-flex;
   padding: 0.25rem;
   margin-bottom: 1rem;
-  border: 1px solid #ff512f;
+  border: 1px solid var(--accent);
   border-radius: 1.5rem;
   background: rgba(255, 255, 255, 0.07);
 }
@@ -444,14 +483,15 @@ label {
 }
 
 .mode-toggle-option[aria-pressed="true"] {
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
-  box-shadow: 0 0.15rem 0.5rem rgba(221, 36, 118, 0.15);
+  background: var(--accent-gradient);
+  color: var(--on-accent);
+  box-shadow: 0 0.15rem 0.5rem var(--accent-shadow);
   opacity: 1;
 }
 
-#plexModeControls {
+#editionsControls {
   width: 100%;
-  display: none;
+  display: flex;
   flex-direction: column;
   align-items: center;
 }
@@ -471,12 +511,22 @@ label {
   margin-top: 2rem;
 }
 
+.edition-block {
+  border-color: var(--edition-color);
+}
+
+.edition-block .heading {
+  background: var(--edition-color);
+  color: #fff;
+}
+
 .playlist-block {
-  border-color: #2ec4b6;
+  border-color: var(--plex-color);
 }
 
 .playlist-block .heading {
-  background: linear-gradient(90deg, #2ec4b6 0%, #1a8fa3 100%);
+  background: var(--plex-color);
+  color: #1f2326;
 }
 
 .source-list-hint {
@@ -497,17 +547,37 @@ label {
 }
 
 .source-badge-edition {
-  background: linear-gradient(90deg, #ff512f 0%, #dd2476 100%);
+  background: var(--edition-color);
+  color: #fff;
 }
 
 .source-badge-plex {
-  background: linear-gradient(90deg, #2ec4b6 0%, #1a8fa3 100%);
+  background: var(--plex-color);
+  color: #1f2326;
 }
 
-.playlist-smart {
+/* Match rate of an edition; 100% means every card is playable */
+.match-rate {
+  display: inline-block;
+  margin-left: auto;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.match-rate-complete {
+  background: #4caf50;
+  border-color: #4caf50;
+  opacity: 1;
+}
+
+.edition-meta {
   font-size: 0.85rem;
-  opacity: 0.6;
-  font-style: italic;
+  opacity: 0.7;
 }
 
 .song-note {
@@ -548,12 +618,17 @@ label {
   font-size: 1rem;
 }
 
+/* Read-only list in Hitster Mode */
+.game-editions-list label:not([for]) {
+  cursor: default;
+}
+
 #playback-duration {
   width: 3.5rem;
   font-size: 1.1rem;
   padding: 0.3rem 0.6rem;
   border-radius: 0.5rem;
-  border: 1px solid #ff512f;
+  border: 1px solid var(--accent);
   background: rgba(255, 255, 255, 0.12);
   color: #333;
 }
@@ -571,7 +646,7 @@ input[type="password"] {
   padding: 0.5rem 0.8rem;
   margin: 0.4rem 0;
   border-radius: 0.5rem;
-  border: 1px solid #ff512f;
+  border: 1px solid var(--accent);
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }

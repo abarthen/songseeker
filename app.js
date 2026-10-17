@@ -609,7 +609,7 @@ function updateProgressBar() {
     if (duration > 0) {
         const percentage = (currentTime / duration) * 100;
         progressBar.value = percentage;
-        progressBar.style.background = `linear-gradient(to right, #ff512f 0%, #ff512f ${percentage}%, rgba(255, 255, 255, 0.2) ${percentage}%)`;
+        progressBar.style.background = `linear-gradient(to right, var(--accent) 0%, var(--accent) ${percentage}%, rgba(255, 255, 255, 0.2) ${percentage}%)`;
         currentTimeEl.textContent = formatDuration(currentTime);
         totalTimeEl.textContent = formatDuration(duration);
     }
@@ -896,8 +896,11 @@ function setGameMode(mode) {
     document.querySelectorAll('.mode-toggle-option').forEach(btn => {
         btn.setAttribute('aria-pressed', String(btn.dataset.mode === gameMode));
     });
-    document.getElementById('plexModeControls').style.display = gameMode === 'plex' ? 'flex' : 'none';
+    // Switches the color theme and the mode-specific (.plex-only/.hitster-only) elements
+    document.documentElement.dataset.mode = gameMode;
     updateStartButtonMode();
+    updateEditionsButtonLabel();
+    updateGameEditionsList();
 }
 
 document.querySelectorAll('.mode-toggle-option').forEach(btn => {
@@ -1037,14 +1040,20 @@ document.getElementById('toggleGameEditionsButton').addEventListener('click', fu
     const visible = panel.style.display && panel.style.display !== 'none';
     if (visible) {
         panel.style.display = 'none';
-        this.textContent = 'Show Editions & Playlists';
     } else {
         updateGameEditionsList();
         updatePlexPlaylistsList();
         panel.style.display = 'block';
-        this.textContent = 'Hide Editions & Playlists';
     }
+    updateEditionsButtonLabel();
 });
+
+function updateEditionsButtonLabel() {
+    const panel = document.getElementById('gameEditions_div');
+    const visible = panel.style.display && panel.style.display !== 'none';
+    const content = gameMode === 'plex' ? 'Editions & Playlists' : 'Editions';
+    document.getElementById('toggleGameEditionsButton').textContent = `${visible ? 'Hide' : 'Show'} ${content}`;
+}
 
 function updateGameEditionsList() {
     const listEl = document.getElementById('gameEditionsList');
@@ -1055,25 +1064,48 @@ function updateGameEditionsList() {
         return;
     }
 
-    const listHtml = '<ul class="game-editions-list">' +
-        gameEntries.map(([lang, name]) => {
-            const count = plexSongCounts[lang];
-            const countStr = count ? ` ${count} songs` : '';
-            const range = plexDateRanges[lang];
-            const rangeStr = range ? ` (${range.min}-${range.max})` : '';
-            const rate = plexMatchRates[lang];
-            const rateStr = rate !== undefined ? ` ${rate}%` : '';
-            const checkboxId = `gameEdition-${lang}`;
-            const checked = selectedGames.has(lang) ? ' checked' : '';
-            const safeLang = String(lang).replace(/"/g, '&quot;');
-            return `<li><input type="checkbox" id="${checkboxId}" class="game-edition-checkbox" data-lang="${safeLang}"${checked}/><label for="${checkboxId}">${name}${countStr}${rangeStr}${rateStr}</label></li>`;
-        }).join('') +
-        '</ul>';
-    listEl.innerHTML = listHtml;
+    // Editions can be selected for random playback in Plex Mode; in Hitster Mode
+    // the list only shows which editions are playable
+    const selectable = gameMode === 'plex';
+    listEl.replaceChildren();
+    const list = document.createElement('ul');
+    list.className = 'game-editions-list';
+    for (const [lang, name] of gameEntries) {
+        const item = document.createElement('li');
+        const label = document.createElement('label');
 
-    listEl.querySelectorAll('.game-edition-checkbox').forEach(cb => {
-        cb.addEventListener('change', handleGameEditionToggle);
-    });
+        if (selectable) {
+            const checkboxId = `gameEdition-${lang}`;
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = checkboxId;
+            checkbox.dataset.lang = lang;
+            checkbox.checked = selectedGames.has(lang);
+            checkbox.addEventListener('change', handleGameEditionToggle);
+            item.append(checkbox);
+            label.htmlFor = checkboxId;
+        }
+
+        const count = plexSongCounts[lang];
+        const range = plexDateRanges[lang];
+        const meta = document.createElement('span');
+        meta.className = 'edition-meta';
+        meta.textContent = [count ? `${count} songs` : '', range ? `${range.min}-${range.max}` : '']
+            .filter(Boolean).join(' · ');
+        label.append(name, document.createElement('br'), meta);
+        item.append(label);
+
+        const rate = plexMatchRates[lang];
+        if (rate !== undefined) {
+            const rateBadge = document.createElement('span');
+            rateBadge.className = rate >= 100 ? 'match-rate match-rate-complete' : 'match-rate';
+            rateBadge.textContent = `${rate}%`;
+            rateBadge.title = rate >= 100 ? 'Every card is playable' : `${rate}% of the cards are playable`;
+            item.append(rateBadge);
+        }
+        list.append(item);
+    }
+    listEl.append(list);
 }
 
 function handleGameEditionToggle(event) {
@@ -1108,13 +1140,10 @@ function updatePlexPlaylistsList() {
 
         const label = document.createElement('label');
         label.htmlFor = checkboxId;
-        label.textContent = `${playlist.title} ${playlist.leafCount} songs`;
-        if (playlist.smart) {
-            const smart = document.createElement('span');
-            smart.className = 'playlist-smart';
-            smart.textContent = ' smart';
-            label.append(smart);
-        }
+        const meta = document.createElement('span');
+        meta.className = 'edition-meta';
+        meta.textContent = `${playlist.leafCount} songs` + (playlist.smart ? ' · smart playlist' : '');
+        label.append(playlist.title, document.createElement('br'), meta);
 
         const item = document.createElement('li');
         item.append(checkbox, label);
