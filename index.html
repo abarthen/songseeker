@@ -56,12 +56,19 @@
     <div id="yearrow">Year: <span id="song-year"></span></div>
 
     <hr />
-    <button id="toggleGameEditionsButton" class="button">Show Game Editions</button>
-    <div class="settings_div" id="gameEditions_div">
-      <div class="text-block">
-        <div class="heading">Game Editions</div>
-        <div id="gameEditionsHint">Select one or more editions to play random songs from them.</div>
-        <div id="gameEditionsList"></div>
+    <div class="mode-toggle" role="group" aria-label="Game mode">
+      <button id="hitsterModeButton" class="mode-toggle-option" data-mode="hitster" aria-pressed="true">Hitster Mode</button>
+      <button id="plexModeButton" class="mode-toggle-option" data-mode="plex" aria-pressed="false">Plex Mode</button>
+    </div>
+
+    <div id="plexModeControls">
+      <button id="toggleGameEditionsButton" class="button">Show Game Editions</button>
+      <div class="settings_div" id="gameEditions_div">
+        <div class="text-block">
+          <div class="heading">Game Editions</div>
+          <div id="gameEditionsHint">Select editions to limit random songs to them. With none selected, songs are picked from your whole Plex music library.</div>
+          <div id="gameEditionsList"></div>
+        </div>
       </div>
     </div>
 
@@ -70,7 +77,7 @@
       <div class="text-block">
         <div class="heading">Autoplay</div>
         <div>
-          <input type="checkbox" id="autoplay" name="autoplay" />
+          <input type="checkbox" id="autoplay" name="autoplay" checked />
           <label for="autoplay">Autoplay</label>
           <br />
           <input type="checkbox" id="autoShowSonginfo" name="autoShowSonginfo" />
@@ -117,7 +124,7 @@
     </div>
 
 
-    <script type="module" src="app.js?version=20250830"></script>
+    <script type="module" src="app.js?version=20261017"></script>
 
   </body>
 

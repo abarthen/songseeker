@@ -9,6 +9,7 @@ let currentStartTime = 0;
 let autoShowSonginfoTimer = null; // Timer for auto-showing song info
 let progressBarInterval = null; // Timer for updating progress bar
 const selectedGames = new Set(); // Game editions selected for random playback
+let gameMode = 'hitster'; // 'hitster' (scan cards) or 'plex' (random songs from Plex)
 
 // Button state management
 // States: 'disabled' (grey, no song), 'loading' (green, loading), 'ready' (green, play),
@@ -204,6 +205,73 @@ function isPlexConfigured() {
 function hasPlexMapping(lang) {
     const mapping = getPlexMapping(lang);
     return Object.keys(mapping).length > 0;
+}
+
+// Plex library random playback (Plex Mode without any edition selected)
+let plexMusicSections = null; // [{ key, totalSize }], counted once and cached
+
+async function fetchPlexJson(path) {
+    const separator = path.includes('?') ? '&' : '?';
+    const url = `${plexConfig.serverUrl.replace(/\/$/, '')}${path}${separator}X-Plex-Token=${plexConfig.token}`;
+    const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' }
+    });
+    if (!response.ok) {
+        throw new Error(`Plex request failed: HTTP ${response.status}`);
+    }
+    return response.json();
+}
+
+// Find all music libraries and their track counts. A container size of 0
+// returns only totalSize, so no track list is transferred.
+async function fetchPlexMusicSections() {
+    const data = await fetchPlexJson('/library/sections');
+    const musicSections = (data.MediaContainer.Directory || []).filter(d => d.type === 'artist');
+    const sections = [];
+    for (const section of musicSections) {
+        const countData = await fetchPlexJson(
+            `/library/sections/${section.key}/all?type=10&X-Plex-Container-Start=0&X-Plex-Container-Size=0`);
+        const totalSize = countData.MediaContainer.totalSize || 0;
+        if (totalSize > 0) {
+            sections.push({ key: section.key, totalSize });
+        }
+    }
+    console.log('Plex music sections:', sections);
+    return sections;
+}
+
+// Pick a random track across all music libraries by fetching a single
+// track at a random offset.
+async function fetchRandomLibraryTrack() {
+    if (!plexMusicSections) {
+        plexMusicSections = await fetchPlexMusicSections();
+    }
+    const total = plexMusicSections.reduce((sum, s) => sum + s.totalSize, 0);
+    if (total === 0) return null;
+
+    let offset = Math.floor(Math.random() * total);
+    const section = plexMusicSections.find(s => {
+        if (offset < s.totalSize) return true;
+        offset -= s.totalSize;
+        return false;
+    });
+
+    const data = await fetchPlexJson(
+        `/library/sections/${section.key}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1`);
+    const item = data.MediaContainer.Metadata?.[0];
+    if (!item) {
+        // Library shrank since it was counted; recount on the next request
+        plexMusicSections = null;
+        return null;
+    }
+    return {
+        ratingKey: String(item.ratingKey),
+        title: item.title,
+        artist: item.originalTitle || item.grandparentTitle,
+        album: item.parentTitle,
+        // Tracks rarely carry their own year; fall back to the album year
+        year: item.year || item.parentYear
+    };
 }
 
 async function testPlexConnection() {
@@ -571,7 +639,7 @@ document.getElementById('qr-reader').style.display = 'none'; // Initially hide t
 setButtonState('disabled');
 
 document.getElementById('startScanButton').addEventListener('click', function() {
-    if (selectedGames.size > 0) {
+    if (gameMode === 'plex') {
         playRandomSong();
         return;
     }
@@ -616,30 +684,39 @@ async function playRandomSong() {
     playerManager.stop();
 
     if (!isPlexConfigured()) {
-        document.getElementById('song-ratingkey').textContent = '';
-        document.getElementById('song-artist').textContent = '';
-        document.getElementById('song-title').textContent = 'Plex not configured';
-        document.getElementById('song-title').style.color = '#cc0000';
-        document.getElementById('song-year').textContent = '';
-        setButtonState('disabled');
+        showRandomSongError('Plex not configured');
         return;
     }
 
-    const pool = getSelectedTrackPool();
-    if (pool.length === 0) {
-        document.getElementById('song-ratingkey').textContent = '';
-        document.getElementById('song-artist').textContent = '';
-        document.getElementById('song-title').textContent = 'No songs in selected editions';
-        document.getElementById('song-title').style.color = '#cc0000';
-        document.getElementById('song-year').textContent = '';
-        setButtonState('disabled');
-        return;
+    let track;
+    if (selectedGames.size > 0) {
+        const pool = getSelectedTrackPool();
+        if (pool.length === 0) {
+            showRandomSongError('No songs in selected editions');
+            return;
+        }
+        setButtonState('loading');
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        track = pick.track;
+        console.log(`Random song from ${pick.lang}: ${track.artist} - ${track.title}`);
+    } else {
+        setButtonState('loading');
+        try {
+            track = await fetchRandomLibraryTrack();
+        } catch (e) {
+            console.error('Failed to fetch random track from Plex library:', e);
+        }
+        if (!track) {
+            showRandomSongError('Could not get a song from Plex');
+            return;
+        }
+        // Prefer mapping data when the track is part of an edition (validated year)
+        const mapped = lookupPlexTrackByRatingKey(track.ratingKey);
+        if (mapped) {
+            track = mapped.track;
+        }
+        console.log(`Random song from Plex library: ${track.artist} - ${track.title}`);
     }
-
-    setButtonState('loading');
-    const pick = pool[Math.floor(Math.random() * pool.length)];
-    const track = pick.track;
-    console.log(`Random song from ${pick.lang}: ${track.artist} - ${track.title}`);
 
     const plexSettings = getPlexSettings();
     playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
@@ -654,10 +731,37 @@ async function playRandomSong() {
     await playerManager.cue({ trackInfo: track });
 }
 
+function showRandomSongError(message) {
+    document.getElementById('song-ratingkey').textContent = '';
+    document.getElementById('song-artist').textContent = '';
+    document.getElementById('song-title').textContent = message;
+    document.getElementById('song-title').style.color = '#cc0000';
+    document.getElementById('song-year').textContent = '';
+    setButtonState('disabled');
+}
+
 function updateStartButtonMode() {
     const btn = document.getElementById('startScanButton');
-    btn.textContent = selectedGames.size > 0 ? 'Play Random Song' : 'Start Scan';
+    btn.textContent = gameMode === 'plex' ? 'Play Random Song' : 'Start Scan';
 }
+
+function setGameMode(mode) {
+    gameMode = mode === 'plex' ? 'plex' : 'hitster';
+    document.querySelectorAll('.mode-toggle-option').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.mode === gameMode));
+    });
+    document.getElementById('plexModeControls').style.display = gameMode === 'plex' ? 'flex' : 'none';
+    updateStartButtonMode();
+}
+
+document.querySelectorAll('.mode-toggle-option').forEach(btn => {
+    btn.addEventListener('click', function() {
+        if (this.dataset.mode === gameMode) return;
+        setGameMode(this.dataset.mode);
+        document.cookie = "gameMode=" + gameMode + ";max-age=2592000"; //30 Tage
+        listCookies();
+    });
+});
 
 document.getElementById('debugButton').addEventListener('click', function() {
     handleScannedLink("https://www.hitstergame.com/de-aaaa0012/237");
@@ -875,19 +979,19 @@ function getCookieValue(name) {
 
 function getCookies() {
     var isTrueSet;
-    if (getCookieValue("RandomPlaybackChecked") != "") {
+    if (getCookieValue("RandomPlaybackChecked") !== undefined) {
         isTrueSet = (getCookieValue("RandomPlaybackChecked") === 'true');
         document.getElementById('randomplayback').checked = isTrueSet;
     }
-    if (getCookieValue("autoplayChecked") != "") {
+    if (getCookieValue("autoplayChecked") !== undefined) {
         isTrueSet = (getCookieValue("autoplayChecked") === 'true');
         document.getElementById('autoplay').checked = isTrueSet;
     }
-    if (getCookieValue("autoShowSonginfoChecked") != "") {
+    if (getCookieValue("autoShowSonginfoChecked") !== undefined) {
         isTrueSet = (getCookieValue("autoShowSonginfoChecked") === 'true');
         document.getElementById('autoShowSonginfo').checked = isTrueSet;
     }
-    if (getCookieValue("showProgressBarChecked") != "") {
+    if (getCookieValue("showProgressBarChecked") !== undefined) {
         isTrueSet = (getCookieValue("showProgressBarChecked") === 'true');
         document.getElementById('showProgressBar').checked = isTrueSet;
     }
@@ -940,8 +1044,10 @@ document.getElementById('testPlexConnection').addEventListener('click', async fu
 window.addEventListener("DOMContentLoaded", function() {
     getCookies();
     loadSelectedGames();
-    // Panel starts hidden; selections still apply to the Start Scan button.
+    // Without a saved mode, users who already picked editions keep random playback
+    const savedMode = getCookieValue('gameMode');
+    setGameMode(savedMode || (selectedGames.size > 0 ? 'plex' : 'hitster'));
+    // Panel starts hidden; selections still apply in Plex Mode.
     document.getElementById('gameEditions_div').style.display = 'none';
-    updateStartButtonMode();
     loadPlexSettings();
 });
