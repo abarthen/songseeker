@@ -264,24 +264,10 @@ async function fetchPlexMusicSections() {
     return sections;
 }
 
-// Pick a random track across all music libraries by fetching a single
-// track at a random offset.
-async function fetchRandomLibraryTrack() {
-    if (!plexMusicSections) {
-        plexMusicSections = await fetchPlexMusicSections();
-    }
-    const total = plexMusicSections.reduce((sum, s) => sum + s.totalSize, 0);
-    if (total === 0) return null;
-
-    let offset = Math.floor(Math.random() * total);
-    const section = plexMusicSections.find(s => {
-        if (offset < s.totalSize) return true;
-        offset -= s.totalSize;
-        return false;
-    });
-
+// Fetch a single library track by its position, so no track list is downloaded
+async function fetchLibraryTrack(sectionKey, offset) {
     const data = await fetchPlexJson(
-        `/library/sections/${section.key}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1&includeGuids=1`);
+        `/library/sections/${sectionKey}/all?type=10&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=1&includeGuids=1`);
     const item = data.MediaContainer.Metadata?.[0];
     if (!item) {
         // Library shrank since it was counted; recount on the next request
@@ -550,6 +536,8 @@ async function handleScannedLink(decodedText) {
         const plexSettings = getPlexSettings();
         playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
         displayTrack(songInfo);
+        // So random picks don't repeat a song that was just scanned
+        recordPlayed(songInfo.track.ratingKey);
 
         currentStartTime = 0;
         await playerManager.cue({ trackInfo: songInfo.track });
@@ -819,6 +807,7 @@ async function playRandomSong() {
     }
     const track = songInfo.track;
     console.log(`Random song from ${songInfo.edition || 'Plex'}: ${track.artist} - ${track.title}`);
+    recordPlayed(track.ratingKey, songInfo.position);
 
     const plexSettings = getPlexSettings();
     playerManager.initPlexPlayer(plexSettings.serverUrl, plexSettings.token);
@@ -828,34 +817,162 @@ async function playRandomSong() {
     await playerManager.cue({ trackInfo: track });
 }
 
-// Pick a random song from the selected editions and playlists, weighted by
-// their size, or from the whole library when nothing is selected.
-// Returns { track, edition, conflicts } (see displayTrack) or null.
-async function pickRandomSong() {
+// Play history, so random picks don't repeat songs within the "Don't repeat
+// songs for" window. Kept in localStorage because it outgrows a cookie.
+// ratingKey -> { time, source, index, size }; source/index/size are the
+// playlist or library position a random pick came from, so later picks can
+// skip that position without fetching it.
+const PLAY_HISTORY_STORAGE_KEY = 'playHistory';
+const MAX_NO_REPEAT_HOURS = 30 * 24; // History older than this is dropped
+const MAX_RANDOM_ATTEMPTS = 10; // Retries when a fetched track was played via another source
+
+function loadPlayHistory() {
+    try {
+        return JSON.parse(localStorage.getItem(PLAY_HISTORY_STORAGE_KEY)) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+let playHistory = loadPlayHistory();
+
+function savePlayHistory() {
+    try {
+        localStorage.setItem(PLAY_HISTORY_STORAGE_KEY, JSON.stringify(playHistory));
+    } catch (e) {
+        console.warn('Could not save play history:', e);
+    }
+    updatePlayHistoryStatus();
+}
+
+function getNoRepeatHours() {
+    const hours = parseFloat(document.getElementById('noRepeatHours').value);
+    return hours > 0 ? Math.min(hours, MAX_NO_REPEAT_HOURS) : 0;
+}
+
+// History entries inside the no-repeat window, by ratingKey
+function getRecentlyPlayed() {
+    const cutoff = Date.now() - getNoRepeatHours() * 3600 * 1000;
+    return new Map(Object.entries(playHistory).filter(([, entry]) => entry.time > cutoff));
+}
+
+function recordPlayed(ratingKey, position = null) {
+    const cutoff = Date.now() - MAX_NO_REPEAT_HOURS * 3600 * 1000;
+    for (const [key, entry] of Object.entries(playHistory)) {
+        if (entry.time <= cutoff) delete playHistory[key];
+    }
+    playHistory[ratingKey] = { time: Date.now(), ...position };
+    savePlayHistory();
+}
+
+function updatePlayHistoryStatus() {
+    const count = getRecentlyPlayed().size;
+    document.getElementById('playHistoryStatus').textContent =
+        getNoRepeatHours() > 0 ? `${count} song${count === 1 ? '' : 's'} on hold` : '';
+}
+
+// Playlists and libraries to pick from, as { id, size, fetch(index) }
+async function getRemoteSources() {
     if (selectedGames.size === 0 && selectedPlaylists.size === 0) {
-        return songInfoForPlexTrack(await fetchRandomLibraryTrack());
+        if (!plexMusicSections) {
+            plexMusicSections = await fetchPlexMusicSections();
+        }
+        return plexMusicSections.map(s => ({
+            id: `library:${s.key}`,
+            size: s.totalSize,
+            fetch: async index => {
+                const track = await fetchLibraryTrack(s.key, index);
+                // Library shrank since it was counted; recount on the next request
+                if (!track) plexMusicSections = null;
+                return track;
+            }
+        }));
     }
-
-    const editionPool = getSelectedTrackPool();
-    const playlists = await Promise.all(Array.from(selectedPlaylists, async key => ({
-        key,
-        size: await fetchPlaylistSize(key)
+    return Promise.all(Array.from(selectedPlaylists, async key => ({
+        id: `playlist:${key}`,
+        size: await fetchPlaylistSize(key),
+        fetch: index => fetchPlaylistTrack(key, index)
     })));
-    const total = playlists.reduce((sum, p) => sum + p.size, editionPool.length);
-    if (total === 0) return null;
+}
 
-    let index = Math.floor(Math.random() * total);
-    if (index < editionPool.length) {
-        const pick = editionPool[index];
-        return { track: pick.track, edition: pick.lang, conflicts: [] };
+// Map n to the n-th position that isn't in skip
+function nthUnskippedIndex(n, skip) {
+    for (const skipped of [...skip].sort((a, b) => a - b)) {
+        if (skipped > n) break;
+        n++;
     }
-    index -= editionPool.length;
-    const playlist = playlists.find(p => {
-        if (index < p.size) return true;
-        index -= p.size;
-        return false;
-    });
-    return songInfoForPlexTrack(await fetchPlaylistTrack(playlist.key, index));
+    return n;
+}
+
+// Pick a random song from the selected editions and playlists, weighted by
+// their size, or from the whole library when nothing is selected. Recently
+// played songs are skipped; once all of them were played, the one played
+// longest ago is repeated.
+// Returns { track, edition, conflicts, position } (see displayTrack) or null.
+async function pickRandomSong() {
+    const recent = getRecentlyPlayed();
+    const editionPool = getSelectedTrackPool();
+    const freshEditionPool = editionPool.filter(p => !recent.has(String(p.track.ratingKey)));
+    const sources = await getRemoteSources();
+    for (const source of sources) {
+        source.skip = new Set();
+        for (const entry of recent.values()) {
+            // A changed size means the positions moved, so they can't be trusted
+            if (entry.source === source.id && entry.size === source.size && entry.index < source.size) {
+                source.skip.add(entry.index);
+            }
+        }
+    }
+
+    for (let attempt = 0; attempt < MAX_RANDOM_ATTEMPTS; attempt++) {
+        const total = sources.reduce((sum, s) => sum + s.size - s.skip.size, freshEditionPool.length);
+        if (total === 0) break;
+
+        let n = Math.floor(Math.random() * total);
+        if (n < freshEditionPool.length) {
+            const pick = freshEditionPool[n];
+            return { track: pick.track, edition: pick.lang, conflicts: [] };
+        }
+        n -= freshEditionPool.length;
+        const source = sources.find(s => {
+            if (n < s.size - s.skip.size) return true;
+            n -= s.size - s.skip.size;
+            return false;
+        });
+        const index = nthUnskippedIndex(n, source.skip);
+        const songInfo = songInfoForPlexTrack(await source.fetch(index));
+        if (!songInfo) return null;
+        songInfo.position = { source: source.id, index, size: source.size };
+        const ratingKey = String(songInfo.track.ratingKey);
+        if (!recent.has(ratingKey)) return songInfo;
+        // Played via another source (e.g. scanned): remember its position so
+        // later picks skip it without fetching, and try again
+        playHistory[ratingKey] = { ...playHistory[ratingKey], ...songInfo.position };
+        savePlayHistory();
+        source.skip.add(index);
+    }
+
+    return pickLeastRecentlyPlayed(recent, editionPool, sources);
+}
+
+// All songs were played within the window: repeat the one played longest ago
+async function pickLeastRecentlyPlayed(recent, editionPool, sources) {
+    const oldestFirst = [...recent.entries()].sort(([, a], [, b]) => a.time - b.time);
+    for (const [ratingKey, entry] of oldestFirst) {
+        const pick = editionPool.find(p => String(p.track.ratingKey) === ratingKey);
+        if (pick) {
+            return { track: pick.track, edition: pick.lang, conflicts: [] };
+        }
+        const source = sources.find(s => s.id === entry.source && s.size === entry.size);
+        if (source) {
+            const songInfo = songInfoForPlexTrack(await source.fetch(entry.index));
+            if (songInfo) {
+                songInfo.position = { source: source.id, index: entry.index, size: source.size };
+                return songInfo;
+            }
+        }
+    }
+    return null;
 }
 
 // Song info for a track fetched from Plex: edition data wins if the song is in any edition
@@ -1135,6 +1252,17 @@ document.getElementById('saveYearsToPlex').addEventListener('click', function() 
     listCookies();
 });
 
+document.getElementById('noRepeatHours').addEventListener('change', function() {
+    document.cookie = "noRepeatHours=" + getNoRepeatHours() + ";max-age=2592000"; //30 Tage
+    updatePlayHistoryStatus();
+    listCookies();
+});
+
+document.getElementById('clearPlayHistory').addEventListener('click', function() {
+    playHistory = {};
+    savePlayHistory();
+});
+
 document.getElementById('showProgressBar').addEventListener('click', function() {
     document.cookie = "showProgressBarChecked=" + this.checked + ";max-age=2592000"; //30 Tage
     updateProgressBarVisibility();
@@ -1346,6 +1474,10 @@ function getCookies() {
         isTrueSet = (getCookieValue("saveYearsToPlexChecked") === 'true');
         document.getElementById('saveYearsToPlex').checked = isTrueSet;
     }
+    if (getCookieValue("noRepeatHours") !== undefined) {
+        document.getElementById('noRepeatHours').value = getCookieValue("noRepeatHours");
+    }
+    updatePlayHistoryStatus();
     listCookies();
 }
 

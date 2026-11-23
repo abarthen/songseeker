@@ -86,6 +86,7 @@ The deployed site uses cookie-based authentication with a proper login page (pas
 **Game modes** (toggle below the divider, saved in the `gameMode` cookie):
 - **Hitster Mode** - Scan cards
 - **Plex Mode** - "Play Random Song" from the selected editions and Plex playlists (weighted by size), or from the whole Plex music library when nothing is selected. Library and playlist picks fetch a single item at a random offset (`X-Plex-Container-Start`/`Size`), so no track list is downloaded
+- **No repeats** - Random picks skip songs played within the "Don't repeat songs for (hours)" setting (default 24, `noRepeatHours` cookie). The play history lives in localStorage (`playHistory`, per device, entries older than 30 days dropped) and records the playlist/library position each random pick came from, so later picks skip those positions without fetching them. Scanned songs are recorded too; when a random pick hits one, its position is learned and the pick retried. Once every song was played within the window, the one played longest ago is repeated. "Forget played songs" clears the history
 
 **Song info sources:**
 - Edition mappings are the source of truth: any song (scanned, from a playlist or the library) is looked up by ratingKey in all loaded mappings first, even unselected ones. If mappings disagree, the first in manifest order wins and a warning is shown

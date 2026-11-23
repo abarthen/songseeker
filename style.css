@@ -655,7 +655,8 @@ label {
   cursor: default;
 }
 
-#playback-duration {
+#playback-duration,
+#noRepeatHours {
   width: 3.5rem;
   font-size: 1.1rem;
   padding: 0.3rem 0.6rem;
@@ -663,6 +664,10 @@ label {
   border: 1px solid var(--accent);
   background: rgba(255, 255, 255, 0.12);
   color: #333;
+}
+
+#noRepeatHours {
+  width: 4.5rem;
 }
 
 #cookielist {
