@@ -416,6 +416,16 @@ hr {
   box-shadow: 0 0.15rem 0.5rem var(--accent-shadow);
 }
 
+#settings_div .text-block {
+  margin-top: 1.8rem;
+  margin-bottom: 1.8rem;
+}
+
+/* Different kinds of inputs (checkboxes, number fields, buttons) get vertical space between them */
+.setting-row + .setting-row {
+  margin-top: 0.9rem;
+}
+
 .text-block .heading {
   position: absolute;
   top: -1.1rem;
@@ -720,10 +730,6 @@ input[type="file"] {
 #plexMappingStatus.loading,
 #plexConnectionStatus.loading {
   color: #e5a00d;
-}
-
-#testPlexConnection {
-  margin-top: 0.5rem;
 }
 
 /* Animation for correct/incorrect guess feedback */

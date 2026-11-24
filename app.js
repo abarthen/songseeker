@@ -867,8 +867,9 @@ function recordPlayed(ratingKey, position = null) {
 
 function updatePlayHistoryStatus() {
     const count = getRecentlyPlayed().size;
-    document.getElementById('playHistoryStatus').textContent =
-        getNoRepeatHours() > 0 ? `${count} song${count === 1 ? '' : 's'} on hold` : '';
+    document.getElementById('clearPlayHistory').textContent = getNoRepeatHours() > 0
+        ? `Forget ${count} song${count === 1 ? '' : 's'} on hold`
+        : 'Forget played songs';
 }
 
 // Playlists and libraries to pick from, as { id, size, fetch(index) }
